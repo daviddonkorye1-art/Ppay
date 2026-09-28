@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: purposepay
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PURPOSEPAY_ALLOWED_ORIGIN
+        value: ""
+      - key: DATABASE_URL
+        fromDatabase:
+          name: purposepay-db
+          property: connectionString
+databases:
+  - name: purposepay-db
+    plan: free
+    region: frankfurt
+    databaseName: purposepay_db
+    user: purposepay_db_user
+    postgresMajorVersion: 18
