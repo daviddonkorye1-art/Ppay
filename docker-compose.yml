@@ -1,0 +1,16 @@
+services:
+  purposepay:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      PURPOSEPAY_JWT_SECRET: ${PURPOSEPAY_JWT_SECRET}
+      PURPOSEPAY_ALLOWED_ORIGIN: ${PURPOSEPAY_ALLOWED_ORIGIN:-}
+      PURPOSEPAY_DB: /data/purposepay.db
+    volumes:
+      - purposepay-data:/data
+    restart: unless-stopped
+volumes:
+  purposepay-data:
