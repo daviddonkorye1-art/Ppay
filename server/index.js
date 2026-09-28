@@ -112,7 +112,7 @@ seed();
 
 async function main(req,res){
  if(req.method==='OPTIONS') return json(res,204,{});
- const path=req.url.split('?')[0]; const parts=path.split('/').filter(Boolean); const route=parts.join('/');
+ const urlPath=req.url.split('?')[0]; const parts=urlPath.split('/').filter(Boolean); const route=parts.join('/');
  try {
   if(req.method==='GET' && route==='api/health') return json(res,200,{ok:true,service:'purposepay-api',version:'0.3.0',database:DB_FILE});
   if(req.method==='GET' && !route.startsWith('api/')) {
