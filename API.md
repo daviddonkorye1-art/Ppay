@@ -1,4 +1,4 @@
-# PurposePay API v0.4
+# PurposePay API v0.5
 
 Base URL during local development: `http://localhost:8787/api`
 
@@ -47,7 +47,7 @@ Returns `token` and a safe user object.
 }
 ```
 
-The development build stores document metadata. Production should use a qualified KYC provider and secure document storage rather than keeping sensitive documents in application storage.
+The development API stores document metadata only. Production should use a qualified KYC provider and secure document storage rather than keeping sensitive documents in application storage.
 
 ## Projects and vouchers
 
@@ -90,7 +90,7 @@ The API checks:
 {"transactionId":"TXN_...","authorizationCode":"ABC123","receiptUrl":"internal-receipt-reference"}
 ```
 
-Completion performs the voucher balance update and transaction update in one SQLite transaction.
+Completion performs the voucher balance update and transaction update atomically in PostgreSQL.
 
 ## School payments
 
@@ -103,6 +103,8 @@ Completion performs the voucher balance update and transaction update in one SQL
 ```json
 {"schoolId":"SCH_...","studentName":"Kojo Mensah","studentId":"STU-123","term":"2026/27 Term 1","amount":5000}
 ```
+
+A customer must have verified KYC status before submitting a school payment.
 
 ## Admin
 
@@ -130,3 +132,7 @@ Risk resolution example:
 ## Idempotency
 
 State-changing payment operations accept an `Idempotency-Key` header. Use a unique stable key per client operation. Reusing a key with different request data is rejected. The web client generates keys automatically.
+
+## Health
+
+`GET /api/health` returns service and database status. In production the API requires `DATABASE_URL` and reports PostgreSQL as its backing database.
