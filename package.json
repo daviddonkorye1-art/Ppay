@@ -7,7 +7,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test",
-    "check": "node --check server/index.js && node --check server/http-error.js && node --check server/idempotency.js",
+    "check": "node --check server/index.js && node --check server/http-error.js && node --check server/idempotency.js && node --check server/request-safety.js",
     "ci": "npm run check && npm test"
   },
   "engines": { "node": "20.x" },
