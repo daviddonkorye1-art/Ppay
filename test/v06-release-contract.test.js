@@ -17,10 +17,18 @@ test('CI syntax-checks every hardening module', () => {
   assert.match(pkg.scripts.check, /server\/request-safety\.js/);
 });
 
-test('release cannot ship while API health still advertises v0.5.0', () => {
+test('API health advertises v0.6.0', () => {
+  assert.match(server, /version:'0\.6\.0'/);
   assert.doesNotMatch(server, /version:'0\.5\.0'/);
 });
 
-test('release cannot ship while global handler exposes raw exception messages', () => {
+test('global handler does not expose raw exception messages', () => {
   assert.doesNotMatch(server, /error:e\.message\|\|'Internal server error'/);
+});
+
+test('main API imports hardened request-safety helpers before release', () => {
+  assert.match(server, /from ['"]\.\/request-safety\.js['"]/);
+  assert.match(server, /loadIdempotency/);
+  assert.match(server, /saveIdempotency/);
+  assert.match(server, /publicErrorResponse/);
 });
