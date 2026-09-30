@@ -45,8 +45,9 @@ live('customer cannot access admin risk controls',async()=>{
   assert.equal(response.status,403);
 });
 
-live('idempotency key format is enforced before authorization mutation',async()=>{
+live('invalid idempotency key returns controlled validation error',async()=>{
   const token=await login('demo@purposepay.test','Demo12345!');
-  const {response}=await call('/api/transactions/authorize',{method:'POST',token,headers:{'idempotency-key':'short'},body:{voucherId:'none',merchantId:'none',amount:1}});
-  assert.equal(response.status,500);
+  const {response,data}=await call('/api/transactions/authorize',{method:'POST',token,headers:{'idempotency-key':'short'},body:{voucherId:'none',merchantId:'none',amount:1}});
+  assert.equal(response.status,400);
+  assert.equal(data?.error,'Invalid Idempotency-Key');
 });
