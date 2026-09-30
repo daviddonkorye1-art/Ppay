@@ -70,7 +70,7 @@ async function main(req,res){
  if(req.method==='OPTIONS')return out(res,204,{});
  const urlPath=req.url.split('?')[0],parts=urlPath.split('/').filter(Boolean),route=parts.join('/');
  try{
-  if(req.method==='GET'&&route==='api/health'){const r=await q('SELECT 1 AS ok');return out(res,200,{ok:r.rows[0].ok===1,service:'purposepay-api',version:'0.5.0',database:'postgres'})}
+  if(req.method==='GET'&&route==='api/health'){const r=await q('SELECT 1 AS ok');return out(res,200,{ok:r.rows[0].ok===1,service:'purposepay-api',version:'0.6.0',database:'postgres'})}
   if(req.method==='GET'&&!route.startsWith('api/')){const webRoot=path.resolve(ROOT,'..'),requested=route||'index.html',candidate=path.resolve(webRoot,requested);const inside=candidate===webRoot||candidate.startsWith(`${webRoot}${path.sep}`);const f=inside&&fs.existsSync(candidate)&&fs.statSync(candidate).isFile()?candidate:path.join(webRoot,'index.html');res.writeHead(200,{'content-type':MIME[path.extname(f)]||'text/html'});return res.end(fs.readFileSync(f))}
   if(req.method==='POST'&&route==='api/auth/register'){const b=await body(req);if(!b.email||!b.password||!b.firstName||!b.lastName)return out(res,400,{error:'First name, last name, email and password are required'});if(String(b.password).length<8)return out(res,400,{error:'Password must be at least 8 characters'});const email=b.email.trim().toLowerCase();if((await q('SELECT 1 FROM users WHERE email=$1',[email])).rows[0])return out(res,409,{error:'Email already registered'});const uid=id('USR');await q('INSERT INTO users(id,email,password_hash,role,first_name,last_name,phone) VALUES($1,$2,$3,$4,$5,$6,$7)',[uid,email,await bcrypt.hash(b.password,12),'CUSTOMER',b.firstName.trim(),b.lastName.trim(),b.phone||null]);await audit(uid,'REGISTER','USER',uid);const u=(await q('SELECT * FROM users WHERE id=$1',[uid])).rows[0];return out(res,201,{user:safe(u),token:token(u)})}
   if(req.method==='POST'&&route==='api/auth/login'){const b=await body(req),email=(b.email||'').trim().toLowerCase();if(!limitLogin(email))return out(res,429,{error:'Too many login attempts. Try again later.'});const u=(await q('SELECT * FROM users WHERE email=$1',[email])).rows[0];if(!u||!(await bcrypt.compare(b.password||'',u.password_hash)))return out(res,401,{error:'Invalid email or password'});return out(res,200,{user:safe(u),token:token(u)})}
@@ -96,7 +96,7 @@ async function main(req,res){
   if(req.method==='POST'&&route==='api/admin/risk/resolve'){if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});const b=await body(req);await q('UPDATE transactions SET risk_status=$1 WHERE id=$2',[b.status==='BLOCKED'?'BLOCKED':'CLEAR',b.transactionId]);await audit(me.sub,'RISK_REVIEW','TRANSACTION',b.transactionId,{status:b.status});return out(res,200,{status:b.status})}
   if(req.method==='GET'&&route==='api/admin/audit'){if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});return out(res,200,{logs:(await q('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 200')).rows})}
   return out(res,404,{error:'Route not found'})
- }catch(e){console.error(e);return out(res,500,{error:e.message||'Internal server error'})}
+ }catch(e){console.error(e);return out(res,500,{error:'Internal server error'})}
 }
 await init();
-http.createServer((req,res)=>main(req,res)).listen(PORT,'0.0.0.0',()=>console.log(`PurposePay API v0.5 listening on 0.0.0.0:${PORT}`));
+http.createServer((req,res)=>main(req,res)).listen(PORT,'0.0.0.0',()=>console.log(`PurposePay API v0.6 listening on 0.0.0.0:${PORT}`));
