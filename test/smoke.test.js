@@ -18,5 +18,6 @@ test('server has core security controls', () => {
   assert.match(s, /issuer:'purposepay'/);
   assert.match(s, /audience:'purposepay-web'/);
   assert.match(s, /risk_status==='BLOCKED'/);
-  assert.match(s, /role='CONTRACTOR'/);
+  assert.match(s, /role\(me,'CUSTOMER','CONTRACTOR'\)/);
+  assert.match(s, /role\(me,'CONTRACTOR'\)/);
 });
