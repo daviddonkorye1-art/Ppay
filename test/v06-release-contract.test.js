@@ -22,7 +22,7 @@ test('CI syntax-checks every hardening module', () => {
 });
 
 test('API health advertises v2.0.0', () => {
-  assert.match(server, /version:'1\.9\.0'/);
+  assert.match(server, /version:'2\.0\.0'/);
   assert.doesNotMatch(server, /version:'0.6.0'/);
 });
 
