@@ -1,4 +1,4 @@
-# PurposePay API v0.7
+# PurposePay API v0.8.1
 
 Base URL during local development: `http://localhost:8787/api`
 
@@ -22,7 +22,7 @@ Customer registration now collects government ID metadata and creates an `UNDER_
 `POST /auth/register`
 
 ```json
-{"firstName":"Ama","lastName":"Mensah","email":"ama@example.com","password":"minimum8chars","phone":"+233..."}
+{"firstName":"Ama","lastName":"Mensah","email":"ama@example.com","password":"minimum8chars","phone":"+233...","documentType":"Passport","documentNumber":"G1234567","countryOfIssue":"Ghana"}
 ```
 
 ### Login
@@ -49,7 +49,7 @@ Returns `token` and a safe user object.
 }
 ```
 
-The development API stores document metadata only. Production should use a qualified KYC provider and secure document storage rather than keeping sensitive documents in application storage.
+Government ID numbers are encrypted at rest and API responses expose only the last four digits. Production document images should use qualified KYC-provider storage; the MVP does not store identity images locally. Production should use a qualified KYC provider and secure document storage rather than keeping sensitive documents in application storage.
 
 ## Projects and vouchers
 
