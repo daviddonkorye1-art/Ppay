@@ -138,3 +138,26 @@ State-changing payment operations accept an `Idempotency-Key` header. Use a uniq
 ## Health
 
 `GET /api/health` returns service and database status. In production the API requires `DATABASE_URL` and reports PostgreSQL as its backing database.
+
+
+## Merchant onboarding
+
+### Submit merchant application
+POST /merchants/apply (MERCHANT role, verified KYC required)
+
+```json
+{"businessName":"ABC Materials","category":"Building Materials","businessRegistration":"BR-123","contactPhone":"+233..."}
+```
+
+### Merchant application status
+GET /merchants/me
+
+### Admin merchant queue
+GET /admin/merchants
+
+### Admin merchant review
+POST /admin/merchants/:id/review with {"status":"APPROVED"} or {"status":"REJECTED"}.
+
+## Ledger
+
+GET /ledger is available to merchants and admins. Completed voucher purchases create balanced platform/merchant ledger entries. This is an internal accounting ledger; it does not itself move real funds.
