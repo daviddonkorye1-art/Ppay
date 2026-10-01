@@ -11,8 +11,8 @@ function occurrences(source, pattern) {
   return [...source.matchAll(pattern)].length;
 }
 
-test('package is marked as v1.2.0', () => {
-  assert.equal(pkg.version, '1.2.0');
+test('package is marked as v1.6.0', () => {
+  assert.equal(pkg.version, '1.6.0');
 });
 
 test('CI syntax-checks every hardening module', () => {
@@ -21,7 +21,7 @@ test('CI syntax-checks every hardening module', () => {
   assert.match(pkg.scripts.check, /server\/request-safety\.js/);
 });
 
-test('API health advertises v1.2.0', () => {
+test('API health advertises v1.6.0', () => {
   assert.match(server, /version:'1\.2\.0'/);
   assert.doesNotMatch(server, /version:'0.6.0'/);
 });
