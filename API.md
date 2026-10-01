@@ -184,3 +184,26 @@ GET /settlements for merchants and admins. Completed voucher purchases create PE
 ## v1.1 financial controls
 
 School payments now reserve funds from the customer's PurposePay wallet atomically and create balanced customer-funds/school-payable ledger entries. Admins can review settlement records with POST /admin/settlements/:id/review using APPROVED, PAID, or FAILED. This records settlement state but does not itself transfer money to a bank account.
+
+
+## v1.2 operational workflows
+
+### Contractor verification
+- POST /api/projects/:projectId/contractors/invite — customer invites a contractor by email.
+- POST /api/projects/:projectId/contractors/:assignmentId/respond — contractor accepts or declines.
+- POST /api/projects/:projectId/contractors/:assignmentId/verify — project owner/admin verifies or revokes the contractor.
+- Contractor voucher authorization now requires a VERIFIED project assignment.
+
+### Voucher lifecycle
+- POST /api/vouchers/:voucherId/cancel — customer can cancel an unused voucher and return its full allocation to the PurposePay wallet.
+- Voucher authorization rejects cancelled/expired vouchers.
+
+### Receipts
+- Completed purchases receive an immutable receiptNumber.
+- GET /api/transactions/:transactionId/receipt returns a role-authorized receipt record.
+
+### Disputes and refunds
+- POST /api/transactions/:transactionId/dispute — customer opens a dispute against a completed transaction.
+- GET /api/disputes — customer or admin views disputes.
+- POST /api/admin/disputes/:disputeId/resolve — admin rejects a dispute or issues a full wallet refund. Refunds reverse voucher usage and settlement status and create audit/ledger records.
+- GET /api/admin/reconciliation — admin reconciliation summary across settlements, transactions, disputes and refunds.

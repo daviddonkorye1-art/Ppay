@@ -86,3 +86,15 @@ test('v1.1 school payments require wallet funds and settlement review is admin-o
   assert.match(server, /SETTLEMENT_REVIEW/);
   assert.match(server, /SCHOOL.*PAYABLE|PAYABLE/);
 });
+
+
+test('v1.2 operational workflows are wired', () => {
+  assert.match(server, /project_contractors/);
+  assert.ok(server.includes('INVITE_CONTRACTOR'));
+  assert.ok(server.includes('VERIFY_CONTRACTOR'));
+  assert.ok(server.includes('api/vouchers'));
+  assert.match(server, /receipt_number/);
+  assert.match(server, /disputes/);
+  assert.match(server, /refunds/);
+  assert.ok(server.includes('REFUND_TRANSACTION'));
+});
