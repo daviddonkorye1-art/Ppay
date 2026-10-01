@@ -211,3 +211,5 @@ School payments now reserve funds from the customer's PurposePay wallet atomical
 
 ## v1.6 payout provider
 Provider-controlled merchant payout workflow; manual mode remains the default until payout credentials are configured.
+
+<!-- v1.6-ci-sync -->
