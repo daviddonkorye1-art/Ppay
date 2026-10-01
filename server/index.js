@@ -118,6 +118,7 @@ async function seed(){
  await q('INSERT INTO transactions(id,voucher_id,project_id,customer_id,merchant_id,category,amount,status,authorization_code,risk_status,settlement_status,completed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())',[tx,vid,pid,uid,mid,'Cement',8000,'COMPLETED','DEMOAUTH','REVIEW','PENDING']);
  await audit(uid,'SEED_DEMO','SYSTEM',null,{transaction:tx});
 }
+async function servePublic(req,res,pathname){const file=pathname==='/'?path.join(ROOT,'..','index.html'):path.join(ROOT,'..',pathname.replace(/^\\//,''));const resolved=path.resolve(file);const publicRoot=path.resolve(path.join(ROOT,'..'));if(resolved!==publicRoot&&!resolved.startsWith(publicRoot+path.sep))return false;let data;try{data=await fs.promises.readFile(resolved)}catch{return false}const ext=path.extname(resolved).toLowerCase();res.writeHead(200,{'content-type':MIME[ext]||'application/octet-stream','cache-control':production?'public,max-age=300':'no-cache'});res.end(data);return true}
 async function main(req,res){
  if(req.method==='OPTIONS')return out(res,204,{});
  const clientIp=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
