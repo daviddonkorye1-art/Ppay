@@ -121,7 +121,7 @@ async function seed(){
 async function main(req,res){
  if(req.method==='OPTIONS')return out(res,204,{});
  const clientIp=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
- if(req.method==='POST'&&routeSafe(req.url,['api/auth/login','api/auth/register'])&&!limitRequest('auth:'+clientIp,30,900000))return out(res,429,{error:'Too many authentication requests. Try again later.'});
+ if(req.method==='POST'&&['api/auth/login','api/auth/register'].includes(String(req.url||'').split('?')[0].replace(/^\/+/,''))&&!limitRequest('auth:'+clientIp,30,900000))return out(res,429,{error:'Too many authentication requests. Try again later.'});
  const urlPath=req.url.split('?')[0],parts=urlPath.split('/').filter(Boolean),route=parts.join('/');
  try{
   if(req.method==='GET'&&route==='api/health'){const r=await q('SELECT 1 AS ok');return out(res,200,{ok:r.rows[0].ok===1,service:'purposepay-api',version:'2.0.0',database:'postgres',paymentProvider:PAYMENT_PROVIDER,financialControls:'wallet-ledger-v3'})}
