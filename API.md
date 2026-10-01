@@ -207,3 +207,7 @@ School payments now reserve funds from the customer's PurposePay wallet atomical
 - GET /api/disputes — customer or admin views disputes.
 - POST /api/admin/disputes/:disputeId/resolve — admin rejects a dispute or issues a full wallet refund. Refunds reverse voucher usage and settlement status and create audit/ledger records.
 - GET /api/admin/reconciliation — admin reconciliation summary across settlements, transactions, disputes and refunds.
+
+
+## v1.6 payout provider
+Provider-controlled merchant payout workflow; manual mode remains the default until payout credentials are configured.
