@@ -35,8 +35,8 @@ test('main API imports and actually uses hardened request-safety helpers before 
 
   // All three financial write routes must load and persist idempotency through
   // the hardened adapter, with the database query dependency supplied explicitly.
-  assert.equal(occurrences(server, /loadIdempotency\(req,me\.sub,b,q\)/g), 3);
-  assert.equal(occurrences(server, /saveIdempotency\(ir,me\.sub,(?:200|201),response,q\)/g), 3);
+  assert.equal(occurrences(server, /loadIdempotency\(req,me\.sub,b,q\)/g), 4);
+  assert.equal(occurrences(server, /saveIdempotency\(ir,me\.sub,(?:200|201),response,q\)/g), 4);
 
   // The legacy inline implementation must be gone rather than left reachable.
   assert.doesNotMatch(server, /async function idem\(/);
