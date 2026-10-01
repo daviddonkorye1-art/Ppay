@@ -67,3 +67,14 @@ test('v0.9 merchant onboarding and ledger are wired', () => {
   assert.match(server, /ledger_entries/);
   assert.match(server, /postPurchaseLedger/);
 });
+
+
+test('v1 payment architecture is wired', () => {
+  assert.match(server, /payment_intents/);
+  assert.match(server, /payment_webhook_events/);
+  assert.match(server, /customer_wallets/);
+  assert.match(server, /x-paystack-signature/);
+  assert.match(server, /settlements/);
+  assert.ok(server.includes('api/payments/intent'));
+  assert.ok(server.includes('api/webhooks/paystack'));
+});

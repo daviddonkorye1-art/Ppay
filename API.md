@@ -161,3 +161,21 @@ POST /admin/merchants/:id/review with {"status":"APPROVED"} or {"status":"REJECT
 ## Ledger
 
 GET /ledger is available to merchants and admins. Completed voucher purchases create balanced platform/merchant ledger entries. This is an internal accounting ledger; it does not itself move real funds.
+
+
+## v1 payments
+
+### Create funding payment intent
+POST /payments/intent with {amount:100} in whole GHS. Requires verified customer KYC. When PAYMENT_PROVIDER=paystack, the backend initializes a Paystack transaction and returns an authorization URL. When PAYMENT_PROVIDER=demo, no real money is moved.
+
+### Funding status
+GET /payments
+
+### Customer PurposePay balance
+GET /wallet
+
+### Paystack webhook
+POST /webhooks/paystack. The endpoint validates the x-paystack-signature HMAC SHA512 signature, deduplicates webhook events, verifies amount/currency, marks the payment intent successful, credits the customer balance, and posts balanced cash/funds ledger entries.
+
+### Settlement records
+GET /settlements for merchants and admins. Completed voucher purchases create PENDING settlement records; actual payout execution remains disabled until a settlement provider is configured.
