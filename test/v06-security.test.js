@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+const server=fs.readFileSync(path.join(process.cwd(),'server/index.js'),'utf8');
 
 const BASE=(process.env.PURPOSEPAY_TEST_URL||'').replace(/\/$/,'');
 const live=BASE ? test : test.skip;
@@ -38,4 +41,20 @@ live('health response does not expose secrets',async()=>{
 live('oversimplified login payload is rejected',async()=>{
   const {response}=await request('/api/auth/login',{method:'POST',body:{}});
   assert.equal(response.status,401);
+});
+
+
+test('v0.8 KYC data is encrypted and customer responses are masked', () => {
+  assert.match(server, /function encryptKycValue\(value\)/);
+  assert.match(server, /aes-256-gcm/);
+  assert.match(server, /document_number_last4/);
+  assert.match(server, /documentNumberLast4/);
+  assert.doesNotMatch(server, /return out\(res,200,\{kyc:k\|\|null\}\)/);
+});
+
+test('v0.8 API emits baseline browser security headers', () => {
+  assert.match(server, /x-content-type-options/);
+  assert.match(server, /x-frame-options/);
+  assert.match(server, /content-security-policy/);
+  assert.match(server, /cache-control/);
 });
