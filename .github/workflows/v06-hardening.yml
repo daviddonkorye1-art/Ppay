@@ -28,3 +28,7 @@ jobs:
         env:
           PURPOSEPAY_TEST_URL: https://purposepay.onrender.com
         run: node --test test/v06-security.test.js
+      - name: Run production smoke tests
+        env:
+          PURPOSEPAY_TEST_URL: https://purposepay.onrender.com
+        run: node --test test/v06-security.test.js
