@@ -101,3 +101,6 @@ test('v1.2 operational workflows are wired', () => {
 
 
 test('v1.6 payout controls are wired', () => { assert.match(server, /PAYSTACK_TRANSFER_PROVIDER/); assert.ok(server.includes('api/admin/settlements/process')); assert.ok(server.includes('api/webhooks/paystack-transfer')); assert.ok(server.includes('api/merchants/payout-profile')); assert.match(server,/payout_recipient_code/); });
+
+
+test('v1.7 operations center and alerts are wired', () => { assert.match(server,/operational_alerts/); assert.ok(server.includes('api/admin/operations')); assert.ok(server.includes('api/admin/operations/ack')); assert.ok(server.includes('PAYOUT_FAILED')); });
