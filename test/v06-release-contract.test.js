@@ -12,7 +12,7 @@ function occurrences(source, pattern) {
 }
 
 test('package is marked as v0.8.1', () => {
-  assert.equal(pkg.version, '0.7.0');
+  assert.equal(pkg.version, '0.8.1');
 });
 
 test('CI syntax-checks every hardening module', () => {
