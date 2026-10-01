@@ -1,4 +1,4 @@
-# PurposePay API v0.5
+# PurposePay API v0.7
 
 Base URL during local development: `http://localhost:8787/api`
 
@@ -15,6 +15,8 @@ Content-Type: application/json
 ```
 
 ## Authentication
+
+Customer registration now collects government ID metadata and creates an `UNDER_REVIEW` KYC submission in the same database transaction. Funded customer activity remains blocked until an admin verifies the submission.
 
 ### Register
 `POST /auth/register`
