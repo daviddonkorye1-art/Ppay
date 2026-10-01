@@ -114,3 +114,6 @@ test('v1.9 financial controls are wired', () => { assert.ok(server.includes('api
 
 test('v2 financial ledger debits customer funds and credits merchant payable', () => { assert.match(server, /ensureLedgerAccount\(client,'CUSTOMER',tx\.customer_id,'FUNDS'\)/); assert.match(server, /customer,'DEBIT',amt/); assert.match(server, /merchant,'CREDIT',amt/); });
 test('v2 production health advertises v2.0 and ledger v3', () => { assert.match(server, /version:'2\.0\.0'/); assert.match(server, /financialControls:'wallet-ledger-v3'/); });
+
+
+test('v2.1 purchase completion debits the customer wallet before ledger posting',()=>{assert.match(server,/SELECT \* FROM customer_wallets WHERE customer_id=\$1 FOR UPDATE/);assert.match(server,/UPDATE customer_wallets SET available_balance=available_balance-\$1/);});
