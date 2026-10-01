@@ -1,12 +1,14 @@
 {
   "name": "purposepay-mvp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "check": "node --check server/index.js && node --check server/http-error.js && node --check server/idempotency.js && node --check server/request-safety.js",
+    "ci": "npm run check && npm test"
   },
   "engines": { "node": "20.x" },
   "dependencies": {
