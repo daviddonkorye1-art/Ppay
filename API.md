@@ -179,3 +179,8 @@ POST /webhooks/paystack. The endpoint validates the x-paystack-signature HMAC SH
 
 ### Settlement records
 GET /settlements for merchants and admins. Completed voucher purchases create PENDING settlement records; actual payout execution remains disabled until a settlement provider is configured.
+
+
+## v1.1 financial controls
+
+School payments now reserve funds from the customer's PurposePay wallet atomically and create balanced customer-funds/school-payable ledger entries. Admins can review settlement records with POST /admin/settlements/:id/review using APPROVED, PAID, or FAILED. This records settlement state but does not itself transfer money to a bank account.

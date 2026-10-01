@@ -78,3 +78,11 @@ test('v1 payment architecture is wired', () => {
   assert.ok(server.includes('api/payments/intent'));
   assert.ok(server.includes('api/webhooks/paystack'));
 });
+
+
+test('v1.1 school payments require wallet funds and settlement review is admin-only', () => {
+  assert.match(server, /Insufficient PurposePay balance/);
+  assert.ok(server.includes("parts[2]==='settlements'"));
+  assert.match(server, /SETTLEMENT_REVIEW/);
+  assert.match(server, /SCHOOL.*PAYABLE|PAYABLE/);
+});
