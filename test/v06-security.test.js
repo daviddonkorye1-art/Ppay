@@ -62,7 +62,7 @@ test('v0.8 API emits baseline browser security headers', () => {
 
 test('v0.9 merchant onboarding and ledger are wired', () => {
   assert.match(server, /merchant_applications/);
-  assert.match(server, /POST.*api\\/merchants\\/apply|api\\/merchants\\/apply/);
+  assert.ok(server.includes('api/merchants/apply'));
   assert.match(server, /ledger_accounts/);
   assert.match(server, /ledger_entries/);
   assert.match(server, /postPurchaseLedger/);
