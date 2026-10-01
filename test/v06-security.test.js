@@ -104,3 +104,6 @@ test('v1.6 payout controls are wired', () => { assert.match(server, /PAYSTACK_TR
 
 
 test('v1.7 operations center and alerts are wired', () => { assert.match(server,/operational_alerts/); assert.ok(server.includes('api/admin/operations')); assert.ok(server.includes('api/admin/operations/ack')); assert.ok(server.includes('PAYOUT_FAILED')); });
+
+
+test('v1.8 notification and reconciliation controls are wired', () => { assert.ok(server.includes('api/notifications/read-all')); assert.ok(server.includes('api/admin/reconciliation/exceptions')); assert.ok(server.includes('PAYMENT_FAILED')); assert.ok(server.includes('notifyAdmins')); });
