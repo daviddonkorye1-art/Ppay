@@ -117,3 +117,5 @@ test('v2 production health advertises v2.0 and ledger v3', () => { assert.match(
 
 
 test('v2.1 purchase completion debits the customer wallet before ledger posting',()=>{assert.match(server,/SELECT \* FROM customer_wallets WHERE customer_id=\$1 FOR UPDATE/);assert.match(server,/UPDATE customer_wallets SET available_balance=available_balance-\$1/);});
+
+test('v2.2 public web serving is wired',()=>{assert.match(server,/async function servePublic/);assert.match(server,/path\.join\(ROOT,'\.\.', 'index\.html'\)|path\.join\(ROOT,'\.\.', 'index\.html'\)/);});
