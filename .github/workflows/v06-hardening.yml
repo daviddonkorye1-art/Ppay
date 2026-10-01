@@ -24,3 +24,7 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Run canonical CI gate
         run: npm run ci
+      - name: Run production smoke tests
+        env:
+          PURPOSEPAY_TEST_URL: https://purposepay.onrender.com
+        run: node --test test/v06-security.test.js
