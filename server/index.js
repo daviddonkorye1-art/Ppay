@@ -14,14 +14,15 @@ const JWT_SECRET=process.env.PURPOSEPAY_JWT_SECRET;
 const ORIGIN=process.env.PURPOSEPAY_ALLOWED_ORIGIN||'';
 const production=process.env.NODE_ENV==='production';
 if(production&&(!JWT_SECRET||JWT_SECRET.length<32))throw new Error('PURPOSEPAY_JWT_SECRET must be at least 32 characters in production');
-if(production&&(!KYC_KEY_RAW||KYC_KEY_RAW.length<32))throw new Error('PURPOSEPAY_KYC_ENCRYPTION_KEY must be at least 32 characters in production');
 const SECRET=JWT_SECRET||crypto.createHash('sha256').update('purposepay-local-development-secret').digest('hex');
+const KYC_KEY_RAW=process.env.PURPOSEPAY_KYC_ENCRYPTION_KEY||'';
+if(production&&(!KYC_KEY_RAW||KYC_KEY_RAW.length<32))throw new Error('PURPOSEPAY_KYC_ENCRYPTION_KEY must be at least 32 characters in production');
 const DATABASE_URL=process.env.DATABASE_URL;
 if(production&&!DATABASE_URL)throw new Error('DATABASE_URL is required in production');
 const pool=new Pool({connectionString:DATABASE_URL||'postgres://localhost/purposepay',max:5,ssl:DATABASE_URL&&/sslmode=require/i.test(DATABASE_URL)?{rejectUnauthorized:false}:undefined});
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
-const id=p=>`${p}_${crypto.randomUUID()}`;\nconst KYC_KEY_RAW=process.env.PURPOSEPAY_KYC_ENCRYPTION_KEY||'';
+const id=p=>`${p}_${crypto.randomUUID()}`;
 const KYC_KEY=crypto.createHash('sha256').update(KYC_KEY_RAW||SECRET).digest();
 function encryptKycValue(value){const iv=crypto.randomBytes(12);const cipher=crypto.createCipheriv('aes-256-gcm',KYC_KEY,iv);const ciphertext=Buffer.concat([cipher.update(String(value),'utf8'),cipher.final()]);const tag=cipher.getAuthTag();return [iv.toString('base64url'),tag.toString('base64url'),ciphertext.toString('base64url')].join('.');}
 function maskKycAdmin(k){return {...maskKyc(k),email:k.email,firstName:k.first_name,lastName:k.last_name,kycStatus:k.kyc_status};}
