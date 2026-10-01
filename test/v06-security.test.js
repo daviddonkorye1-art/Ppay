@@ -107,3 +107,6 @@ test('v1.7 operations center and alerts are wired', () => { assert.match(server,
 
 
 test('v1.8 notification and reconciliation controls are wired', () => { assert.ok(server.includes('api/notifications/read-all')); assert.ok(server.includes('api/admin/reconciliation/exceptions')); assert.ok(server.includes('PAYMENT_FAILED')); assert.ok(server.includes('notifyAdmins')); });
+
+
+test('v1.9 financial controls are wired', () => { assert.ok(server.includes('api/admin/financial-integrity')); assert.ok(server.includes('api/admin/reconciliation/run')); assert.ok(server.includes('wallet-ledger-v2')); assert.ok(server.includes('reused:true')); });
