@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+const server=fs.readFileSync(path.join(process.cwd(),'server/index.js'),'utf8');
 
 const BASE=(process.env.PURPOSEPAY_TEST_URL||'').replace(/\/$/,'');
 const live=BASE ? test : test.skip;
