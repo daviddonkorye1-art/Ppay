@@ -56,7 +56,9 @@ async function init(){
  CREATE INDEX IF NOT EXISTS idx_transactions_customer ON transactions(customer_id);
  CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
  CREATE INDEX IF NOT EXISTS idx_kyc_status ON kyc_documents(status);`);
- const legacyKyc=(await q('SELECT id,document_number FROM kyc_documents WHERE document_number IS NOT NULL')).rows;\n for(const k of legacyKyc){if(!/^[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+$/.test(k.document_number)){const raw=String(k.document_number);await q('UPDATE kyc_documents SET document_number=$1,document_number_last4=COALESCE(document_number_last4,$2) WHERE id=$3',[encryptKycValue(raw),raw.slice(-4),k.id]);}}\n await seed();
+ const legacyKyc=(await q('SELECT id,document_number FROM kyc_documents WHERE document_number IS NOT NULL')).rows; 
+ for(const k of legacyKyc){if(!/^[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+\.[-_A-Za-z0-9]+$/.test(k.document_number)){const raw=String(k.document_number);await q('UPDATE kyc_documents SET document_number=$1,document_number_last4=COALESCE(document_number_last4,$2) WHERE id=$3',[encryptKycValue(raw),raw.slice(-4),k.id]);}}
+ await seed();
 }
 async function seed(){
  let r=await q("SELECT id FROM users WHERE email='admin@purposepay.test'");if(!r.rows[0]){const uid=id('USR');await q('INSERT INTO users(id,email,password_hash,role,first_name,last_name,kyc_status) VALUES($1,$2,$3,$4,$5,$6,$7)',[uid,'admin@purposepay.test',await bcrypt.hash('Admin12345!',12),'ADMIN','PurposePay','Admin','VERIFIED'])}
