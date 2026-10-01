@@ -109,4 +109,8 @@ test('v1.7 operations center and alerts are wired', () => { assert.match(server,
 test('v1.8 notification and reconciliation controls are wired', () => { assert.ok(server.includes('api/notifications/read-all')); assert.ok(server.includes('api/admin/reconciliation/exceptions')); assert.ok(server.includes('PAYMENT_FAILED')); assert.ok(server.includes('notifyAdmins')); });
 
 
-test('v1.9 financial controls are wired', () => { assert.ok(server.includes('api/admin/financial-integrity')); assert.ok(server.includes('api/admin/reconciliation/run')); assert.ok(server.includes('wallet-ledger-v2')); assert.ok(server.includes('reused:true')); });
+test('v1.9 financial controls are wired', () => { assert.ok(server.includes('api/admin/financial-integrity')); assert.ok(server.includes('api/admin/reconciliation/run')); assert.ok(server.includes('wallet-ledger-v3')); assert.ok(server.includes('reused:true')); });
+
+
+test('v2 financial ledger debits customer funds and credits merchant payable', () => { assert.match(server, /ensureLedgerAccount\(client,'CUSTOMER',tx\.customer_id,'FUNDS'\)/); assert.match(server, /customer,'DEBIT',amt/); assert.match(server, /merchant,'CREDIT',amt/); });
+test('v2 production health advertises v2.0 and ledger v3', () => { assert.match(server, /version:'2\.0\.0'/); assert.match(server, /financialControls:'wallet-ledger-v3'/); });
