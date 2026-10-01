@@ -190,4 +190,4 @@ async function main(req,res){
  }catch(e){console.error(e);const publicError=publicErrorResponse(e);return out(res,publicError.status,publicError.body)}
 }
 await init();
-http.createServer((req,res)=>main(req,res)).listen(PORT,'0.0.0.0',()=>console.log(`PurposePay API v1.6.0 listening on 0.0.0.0:${PORT}`));
+http.createServer((req,res)=>main(req,res)).listen(PORT,'0.0.0.0',()=>console.log(`PurposePay API v2.0.0 listening on 0.0.0.0:${PORT}`));
