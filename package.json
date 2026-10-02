@@ -10,10 +10,13 @@
     "check": "node --check server/index.js && node --check server/http-error.js && node --check server/idempotency.js && node --check server/request-safety.js",
     "ci": "npm run check && npm test"
   },
-  "engines": { "node": "20.x" },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "@aws-sdk/client-sns": "^3.913.0"
   }
 }
