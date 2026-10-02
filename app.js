@@ -41,7 +41,7 @@ async function renderPage(){
  }catch(e){return `<div class="card error"><b>Could not load this page.</b><p>${esc(e.message)}</p><button class="btn secondary" onclick="render()">Retry</button></div>`}
 }
 // renderPage is async; render() handles it synchronously below.
-async function mount(){document.getElementById('app').innerHTML=token&&user?layout(await renderPage()):loginView()}
+async function mount(){if(token&&user){await refresh();if(!token||!user){document.getElementById('app').innerHTML=loginView();return}document.getElementById('app').innerHTML=layout(await renderPage());return}document.getElementById('app').innerHTML=loginView()}
 render = mount;
 
 async function customerPage(){
