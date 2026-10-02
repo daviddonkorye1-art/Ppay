@@ -112,10 +112,10 @@ test('v1.8 notification and reconciliation controls are wired', () => { assert.o
 test('v1.9 financial controls are wired', () => { assert.ok(server.includes('api/admin/financial-integrity')); assert.ok(server.includes('api/admin/reconciliation/run')); assert.ok(server.includes('wallet-ledger-v3')); assert.ok(server.includes('reused:true')); });
 
 
-test('v2 financial ledger debits customer funds and credits merchant payable', () => { assert.match(server, /ensureLedgerAccount\(client,'CUSTOMER',tx\.customer_id,'FUNDS'\)/); assert.match(server, /customer,'DEBIT',amt/); assert.match(server, /merchant,'CREDIT',amt/); });
+test('v2 financial ledger consumes voucher allocation and credits merchant payable', () => { assert.match(server, /ensureLedgerAccount\(client,'VOUCHER',tx\.voucher_id,'ALLOCATED'\)/); assert.match(server, /voucher,'DEBIT',amt/); assert.match(server, /merchant,'CREDIT',amt/); });
 test('v2 production health advertises v2.0 and ledger v3', () => { assert.match(server, /version:'2\.0\.0'/); assert.match(server, /financialControls:'wallet-ledger-v3'/); });
 
 
-test('v2.1 purchase completion debits the customer wallet before ledger posting',()=>{assert.match(server,/SELECT \* FROM customer_wallets WHERE customer_id=\$1 FOR UPDATE/);assert.match(server,/UPDATE customer_wallets SET available_balance=available_balance-\$1/);});
+test('v2.1 purchase completion consumes voucher allocation without a second wallet debit',()=>{const start=server.indexOf("route==='api/transactions/complete'");const end=server.indexOf("route==='api/schools/payments'",start);const complete=server.slice(start,end);assert.doesNotMatch(complete,/UPDATE customer_wallets SET available_balance=available_balance-\\$1/);assert.match(complete,/postPurchaseLedger\(client,tx\)/);assert.match(server,/ensureLedgerAccount\(client,'VOUCHER',tx\.voucher_id,'ALLOCATED'\)/);});
 
 test('v2.2 public web serving is wired',()=>{assert.match(server,/async function servePublic/);assert.ok(server.includes("path.join(ROOT,'..','index.html')"));});
