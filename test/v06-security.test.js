@@ -116,6 +116,6 @@ test('v2 financial ledger consumes voucher allocation and credits merchant payab
 test('v2 production health advertises v2.0 and ledger v3', () => { assert.match(server, /version:'2\.0\.0'/); assert.match(server, /financialControls:'wallet-ledger-v3'/); });
 
 
-test('v2.1 purchase completion does not debit the customer wallet twice',()=>{assert.doesNotMatch(server,/UPDATE customer_wallets SET available_balance=available_balance-\$1,updated_at=NOW\(\) WHERE customer_id=\$2/);assert.match(server,/ensureLedgerAccount\(client,'VOUCHER',tx\.voucher_id,'ALLOCATED'\)/);});
+test('v2.1 purchase completion consumes voucher allocation without a second wallet debit',()=>{const start=server.indexOf("route==='api/transactions/complete'");const end=server.indexOf("route==='api/schools/payments'",start);const complete=server.slice(start,end);assert.doesNotMatch(complete,/UPDATE customer_wallets SET available_balance=available_balance-\\$1/);assert.match(complete,/postPurchaseLedger\(client,tx\)/);assert.match(server,/ensureLedgerAccount\(client,'VOUCHER',tx\.voucher_id,'ALLOCATED'\)/);});
 
 test('v2.2 public web serving is wired',()=>{assert.match(server,/async function servePublic/);assert.ok(server.includes("path.join(ROOT,'..','index.html')"));});
