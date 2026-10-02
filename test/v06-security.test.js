@@ -23,7 +23,7 @@ live('malformed bearer token is rejected',async()=>{
 });
 
 live('protected business endpoints reject anonymous writes',async()=>{
-  for(const path of ['/api/kyc/submit','/api/projects','/api/school-payments']){
+  for(const path of ['/api/kyc/submit','/api/projects','/api/schools/payments']){
     const {response}=await request(path,{method:'POST',body:{}});
     assert.equal(response.status,401,`${path} should require authentication`);
   }
