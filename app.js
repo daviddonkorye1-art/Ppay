@@ -16,7 +16,7 @@ const badge = s => `<span class="badge ${['VERIFIED','APPROVED','COMPLETED','ACT
 function toast(msg,type='info'){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),3000)}
 async function api(path,opts={}){
  const headers={'content-type':'application/json',...(opts.headers||{})}; if(token)headers.authorization=`Bearer ${token}`; if((opts.method||'GET').toUpperCase()!=='GET' && !headers['Idempotency-Key']) headers['Idempotency-Key']=crypto.randomUUID();
- const r=await fetch(`${API}${path}`,{...opts,headers}); const data=await r.json().catch(()=>({})); if(!r.ok)throw new Error(data.error||`Request failed (${r.status})`); return data;
+ const r=await fetch(`${API}${path}`,{...opts,headers}); const data=await r.json().catch(()=>({})); if(r.status===401 && path!=='/auth/login' && path!=='/auth/register'){token=null;user=null;localStorage.removeItem('pp-token');localStorage.removeItem('pp-user');throw new Error('Your session has expired. Please sign in again.')} if(!r.ok)throw new Error(data.error||`Request failed (${r.status})`); return data;
 }
 async function refresh(){
  if(!token)return;
@@ -38,7 +38,7 @@ async function renderPage(){
   if(r==='CONTRACTOR')return await contractorPage();
   if(r==='MERCHANT')return await merchantPage();
   if(r==='ADMIN')return await adminPage();
- }catch(e){return `<div class="card error"><b>Could not load this page.</b><p>${esc(e.message)}</p><button class="btn secondary" onclick="render()">Retry</button></div>`}
+ }catch(e){if(!token||!user)return loginView();return `<div class="card error"><b>Could not load this page.</b><p>${esc(e.message)}</p><button class="btn secondary" onclick="render()">Retry</button></div>`}
 }
 // renderPage is async; render() handles it synchronously below.
 async function mount(){if(token&&user){await refresh();if(!token||!user){document.getElementById('app').innerHTML=loginView();return}document.getElementById('app').innerHTML=layout(await renderPage());return}document.getElementById('app').innerHTML=loginView()}
