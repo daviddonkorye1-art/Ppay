@@ -29,6 +29,11 @@ const PAYSTACK_SECRET=process.env.PAYSTACK_SECRET_KEY||'';
 const PAYSTACK_WEBHOOK_SECRET=process.env.PAYSTACK_WEBHOOK_SECRET||PAYSTACK_SECRET;
 const PAYSTACK_TRANSFER_PROVIDER=String(process.env.PURPOSEPAY_PAYOUT_PROVIDER||'manual').toLowerCase();
 const PAYMENT_CURRENCY='GHS';
+const SMS_PROVIDER=String(process.env.PURPOSEPAY_SMS_PROVIDER||'twilio').toLowerCase();
+const TWILIO_ACCOUNT_SID=process.env.TWILIO_ACCOUNT_SID||'';
+const TWILIO_AUTH_TOKEN=process.env.TWILIO_AUTH_TOKEN||'';
+const TWILIO_FROM_NUMBER=process.env.TWILIO_FROM_NUMBER||'';
+const SMS_ENABLED=SMS_PROVIDER==='twilio'&&!!TWILIO_ACCOUNT_SID&&!!TWILIO_AUTH_TOKEN&&!!TWILIO_FROM_NUMBER;
 function encryptKycValue(value){const iv=crypto.randomBytes(12);const cipher=crypto.createCipheriv('aes-256-gcm',KYC_KEY,iv);const ciphertext=Buffer.concat([cipher.update(String(value),'utf8'),cipher.final()]);const tag=cipher.getAuthTag();return [iv.toString('base64url'),tag.toString('base64url'),ciphertext.toString('base64url')].join('.');}
 function maskKycAdmin(k){return {...maskKyc(k),email:k.email,firstName:k.first_name,lastName:k.last_name,kycStatus:k.kyc_status};}
 function maskKyc(k){if(!k)return null;return {id:k.id,documentType:k.document_type,documentNumberLast4:k.document_number_last4||String(k.document_number||'').slice(-4),countryOfIssue:k.country_of_issue,issueDate:k.issue_date,expiryDate:k.expiry_date,status:k.status,reviewNote:k.review_note,createdAt:k.created_at,reviewedAt:k.reviewed_at};}
@@ -47,8 +52,29 @@ function body(req){return new Promise((resolve,reject)=>{let s='';req.on('data',
 async function ensureLedgerAccount(client,ownerType,ownerId,accountType){const existing=(await client.query('SELECT id FROM ledger_accounts WHERE owner_type=$1 AND owner_id IS NOT DISTINCT FROM $2 AND account_type=$3',[ownerType,ownerId,accountType])).rows[0];if(existing)return existing.id;const aid=id('LAC');await client.query('INSERT INTO ledger_accounts(id,owner_type,owner_id,account_type) VALUES($1,$2,$3,$4)',[aid,ownerType,ownerId,accountType]);return aid;}
 async function postPurchaseLedger(client,tx){const voucher=await ensureLedgerAccount(client,'VOUCHER',tx.voucher_id,'ALLOCATED');const merchant=await ensureLedgerAccount(client,'MERCHANT',tx.merchant_id,'PAYABLE');const amt=Number(tx.amount);await client.query('INSERT INTO ledger_entries(id,transaction_id,account_id,entry_type,amount,reference) VALUES($1,$2,$3,$4,$5,$6),($7,$2,$8,$9,$10,$11)',[id('LED'),tx.id,voucher,'DEBIT',amt,`purchase:${tx.id}`,id('LED'),merchant,'CREDIT',amt,`purchase:${tx.id}`]);}
 async function audit(actor,action,type,entity,meta={}){await q('INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,metadata_json) VALUES($1,$2,$3,$4,$5,$6)',[id('AUD'),actor||null,action,type,entity||null,JSON.stringify(meta)])}
-async function notify(userId,type,title,message){if(!userId)return;await q('INSERT INTO notifications(id,user_id,type,title,message) VALUES($1,$2,$3,$4,$5)',[id('NTF'),userId,type,title,message])}
-async function notifyAdmins(type,title,message){const admins=(await q("SELECT id FROM users WHERE role='ADMIN' AND status='ACTIVE'")).rows;for(const a of admins)await notify(a.id,type,title,message)}
+async function sendSms(userId,message){
+  if(!SMS_ENABLED||!userId)return;
+  const u=(await q('SELECT phone,status FROM users WHERE id=$1',[userId])).rows[0];
+  if(!u||u.status!=='ACTIVE'||!u.phone)return;
+  try{
+    const params=new URLSearchParams({To:String(u.phone),From:TWILIO_FROM_NUMBER,Body:String(message).slice(0,1600)});
+    const auth=Buffer.from(TWILIO_ACCOUNT_SID+':'+TWILIO_AUTH_TOKEN).toString('base64');
+    const r=await fetch('https://api.twilio.com/2010-04-01/Accounts/'+encodeURIComponent(TWILIO_ACCOUNT_SID)+'/Messages.json',{method:'POST',headers:{Authorization:'Basic '+auth,'Content-Type':'application/x-www-form-urlencoded'},body:params});
+    const data=await r.json().catch(()=>({}));
+    await q('INSERT INTO sms_logs(id,user_id,phone,message,status,provider_message_id,error_message) VALUES($1,$2,$3,$4,$5,$6,$7)',[id('SMS'),userId,u.phone,String(message).slice(0,1600),r.ok?'SENT':'FAILED',data.sid||null,r.ok?null:String(data.message||data.error_message||r.status)]);
+  }catch(e){
+    await q('INSERT INTO sms_logs(id,user_id,phone,message,status,error_message) VALUES($1,$2,$3,$4,$5,$6)',[id('SMS'),userId,u.phone,String(message).slice(0,1600),'FAILED',String(e.message||e)]);
+  }
+}
+async function notify(userId,type,title,message){
+  if(!userId)return;
+  await q('INSERT INTO notifications(id,user_id,type,title,message) VALUES($1,$2,$3,$4,$5)',[id('NTF'),userId,type,title,message]);
+  void sendSms(userId,'PurposePay: '+title+'. '+message);
+}
+async function notifyAdmins(type,title,message){
+  const admins=(await q("SELECT id FROM users WHERE role='ADMIN' AND status='ACTIVE'")).rows;
+  for(const a of admins)await notify(a.id,type,title,message)
+}
 async function alertOps(severity,type,title,message,entityId=null,meta={}){await q('INSERT INTO operational_alerts(id,severity,type,title,message,entity_id,metadata_json) VALUES($1,$2,$3,$4,$5,$6,$7)',[id('ALT'),severity,type,title,message,entityId,JSON.stringify(meta)])}
 
 async function init(){
@@ -95,6 +121,7 @@ async function init(){
  CREATE INDEX IF NOT EXISTS idx_project_contractors_contractor ON project_contractors(contractor_id);
  CREATE INDEX IF NOT EXISTS idx_disputes_status ON disputes(status);
  CREATE INDEX IF NOT EXISTS idx_refunds_customer ON refunds(customer_id);
+ CREATE TABLE IF NOT EXISTS sms_logs(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),phone TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,provider_message_id TEXT,error_message TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  CREATE TABLE IF NOT EXISTS notifications(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),type TEXT NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  CREATE TABLE IF NOT EXISTS operational_alerts(id TEXT PRIMARY KEY,severity TEXT NOT NULL,type TEXT NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,entity_id TEXT,metadata_json TEXT NOT NULL DEFAULT '{}',status TEXT NOT NULL DEFAULT 'OPEN',acknowledged_by TEXT,acknowledged_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  CREATE INDEX IF NOT EXISTS idx_operational_alerts_status ON operational_alerts(status,created_at DESC);
