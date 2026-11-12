@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../server/index.js',import.meta.url),'utf8');
+const payment=source.slice(source.indexOf("if(req.method==='POST'&&route==='api/fiepa/school-invoices/pay')"),source.indexOf("if(req.method==='GET'&&route==='api/fiepa/my-school-payments')"));
+const verify=source.slice(source.indexOf("if(req.method==='POST'&&route.startsWith('api/fiepa/school-settlements/')"),source.indexOf("if(req.method==='GET'&&route==='api/fiepa/school-invoices'){"));
+test('invoice wallet debit requires sufficient balance',()=>assert.match(payment,/available_balance >= \$1/));
+test('invoice is locked before payment to avoid concurrent double debit',()=>assert.match(payment,/FOR UPDATE OF si/));
+test('wallet-funded invoice creates pending settlement',()=>assert.match(payment,/INSERT INTO school_settlements/));
+test('wallet payment does not complete school transfer',()=>assert.doesNotMatch(payment,/UPDATE school_payments SET status='COMPLETED'/));
+test('school completion is coupled to settlement verification transaction',()=>{assert.match(verify,/await client.query\('BEGIN'\)/);assert.match(verify,/UPDATE school_payments sp SET status='COMPLETED'/);assert.match(verify,/await client.query\('COMMIT'\)/)});

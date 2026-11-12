@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const s=readFileSync(new URL('../server/index.js',import.meta.url),'utf8');
+const start=s.indexOf("if(req.method==='POST'&&route.startsWith('api/fiepa/healthcare/providers/')&&route.endsWith('/review'))");
+const end=s.indexOf('  // Healthcare catalog is read-only.',start);
+const section=s.slice(start,end);
+test('review endpoint is admin-only and feature-flagged',()=>{assert.ok(start>=0&&end>start);assert.match(section,/FIEPA_HEALTHCARE_ENABLED/);assert.match(section,/role\(me,'ADMIN'\)/)});
+test('reviewer must differ from submitter',()=>assert.match(section,/current\.submitted_by===me\.sub/));
+test('review requires evidence and pending state',()=>{assert.match(section,/reviewReference\.length>120/);assert.match(section,/current\.verification_status!=='PENDING'/)});
+test('review locks row and audits decision in one transaction',()=>{assert.match(section,/FOR UPDATE/);assert.match(section,/INSERT INTO audit_logs/);assert.match(section,/await client.query\('COMMIT'\)/);assert.match(section,/await client.query\('ROLLBACK'/)});
+test('review response excludes license and evidence details',()=>assert.match(section,/verificationStatus:decision/));

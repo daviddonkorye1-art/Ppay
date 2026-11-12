@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
+import { validateSchoolInvoice } from './fiepa-school-invoices.js';
 import { loadIdempotency, saveIdempotency, publicErrorResponse } from './request-safety.js';
 const { Pool } = pg;
 
@@ -206,6 +207,171 @@ async function main(req,res){
   if(req.method==='GET'&&route==='api/ledger'){if(!role(me,'MERCHANT','ADMIN'))return out(res,403,{error:'Merchant or admin role required'});let rows;if(role(me,'MERCHANT'))rows=(await q('SELECT e.*,t.category,t.amount transaction_amount FROM ledger_entries e JOIN ledger_accounts a ON a.id=e.account_id LEFT JOIN transactions t ON t.id=e.transaction_id JOIN merchants m ON m.id=a.owner_id WHERE m.user_id=$1 ORDER BY e.created_at DESC',[me.sub])).rows;else rows=(await q('SELECT e.*,t.category,t.amount transaction_amount FROM ledger_entries e LEFT JOIN transactions t ON t.id=e.transaction_id ORDER BY e.created_at DESC LIMIT 500')).rows;return out(res,200,{entries:rows.map(x=>({...x,amount:Number(x.amount),transaction_amount:x.transaction_amount==null?null:Number(x.transaction_amount)}))})}
   if(req.method==='GET'&&route==='api/merchants'){const rows=(await q("SELECT * FROM merchants WHERE status='APPROVED' ORDER BY name")).rows.map(m=>({...m,categories:JSON.parse(m.categories_json||'[]')}));return out(res,200,{merchants:rows})}
   if(req.method==='GET'&&route==='api/schools')return out(res,200,{schools:(await q("SELECT * FROM schools WHERE status='APPROVED' ORDER BY name")).rows})
+
+  // Admin-only provider intake. Submission never approves a provider.
+  if(req.method==='POST'&&route==='api/fiepa/healthcare/providers'){
+    if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const b=await body(req);
+    const legalName=typeof b.legalName==='string'?b.legalName.trim():'';
+    const providerType=typeof b.providerType==='string'?b.providerType.trim().toUpperCase():'';
+    const licenseReference=typeof b.licenseReference==='string'?b.licenseReference.trim():'';
+    if(!legalName||legalName.length>200||!['PHARMACY','HOSPITAL','CLINIC'].includes(providerType)||licenseReference.length>120)return out(res,400,{error:'Valid legal name, provider type and license reference are required'});
+    if(!licenseReference)return out(res,400,{error:'License reference is required for verification review'});
+    const providerId=id('HCP');
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      await client.query("INSERT INTO fiepa_healthcare_providers(id,legal_name,provider_type,license_reference,verification_status) VALUES($1,$2,$3,$4,'PENDING')",[providerId,legalName,providerType,licenseReference]);
+      await client.query('INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,metadata_json) VALUES($1,$2,$3,$4,$5,$6)',[id('AUD'),me.sub,'CREATE','FIEPA_HEALTHCARE_PROVIDER',providerId,JSON.stringify({providerType})]);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+    return out(res,201,{id:providerId,legalName,providerType,verificationStatus:'PENDING'});
+  }
+  // Independent administrative review; evidence is referenced, never publicly returned.
+  if(req.method==='POST'&&route.startsWith('api/fiepa/healthcare/providers/')&&route.endsWith('/review')){
+    if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const providerId=route.slice('api/fiepa/healthcare/providers/'.length,-'/review'.length);
+    if(!/^HCP_[0-9a-f-]{36}$/i.test(providerId))return out(res,400,{error:'Invalid provider ID'});
+    const b=await body(req);
+    const decision=typeof b.decision==='string'?b.decision.trim().toUpperCase():'';
+    const reviewReference=typeof b.reviewReference==='string'?b.reviewReference.trim():'';
+    if(!['APPROVED','REJECTED'].includes(decision)||!reviewReference||reviewReference.length>120)return out(res,400,{error:'Decision and review evidence reference required'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const current=(await client.query('SELECT submitted_by,verification_status,license_reference FROM fiepa_healthcare_providers WHERE id=$1 FOR UPDATE',[providerId])).rows[0];
+      if(!current){await client.query('ROLLBACK');return out(res,404,{error:'Provider not found'})}
+      if(current.verification_status!=='PENDING'){await client.query('ROLLBACK');return out(res,409,{error:'Provider is not pending review'})}
+      if(!current.submitted_by||current.submitted_by===me.sub){await client.query('ROLLBACK');return out(res,403,{error:'Independent reviewer required'})}
+      if(decision==='APPROVED'&&!current.license_reference){await client.query('ROLLBACK');return out(res,409,{error:'License reference missing'})}
+      await client.query('UPDATE fiepa_healthcare_providers SET verification_status=$1,review_reference=$2,verified_by=$3,verified_at=NOW() WHERE id=$4',[decision,reviewReference,me.sub,providerId]);
+      await client.query('INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,metadata_json) VALUES($1,$2,$3,$4,$5,$6)',[id('AUD'),me.sub,'REVIEW','FIEPA_HEALTHCARE_PROVIDER',providerId,JSON.stringify({decision,reviewReference})]);
+      await client.query('COMMIT');
+      return out(res,200,{id:providerId,verificationStatus:decision});
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+  }
+  // Healthcare catalog is read-only. No patient records or payment operations are exposed.
+  if(req.method==='GET'&&route==='api/fiepa/healthcare/providers'){
+    if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'CUSTOMER')&&!role(me,'ADMIN'))return out(res,403,{error:'Customer or admin role required'});
+    const type=String(url.searchParams.get('type')||'').toUpperCase();
+    if(type&&!['PHARMACY','HOSPITAL','CLINIC'].includes(type))return out(res,400,{error:'Unsupported healthcare provider type'});
+    const providers=(await q("SELECT id,legal_name,provider_type FROM fiepa_healthcare_providers WHERE verification_status='APPROVED' AND ($1::text='' OR provider_type=$1) ORDER BY legal_name LIMIT 100",[type])).rows;
+    return out(res,200,{providers});
+  }
+  // Fiepa Pay invoices are opt-in and admin-issued until school account permissions are implemented.
+  if((route==='api/fiepa/school-invoices'||route==='api/fiepa/school-invoices/pay'||route==='api/fiepa/school-invoices/lookup') && process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+  if(req.method==='POST'&&route==='api/fiepa/school-invoices'){
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const parsed=validateSchoolInvoice(await body(req));
+    if(parsed.error)return out(res,400,{error:parsed.error});
+    const v=parsed.value;
+    const approved=(await q("SELECT id FROM schools WHERE id=$1 AND status='APPROVED'",[v.schoolId])).rows[0];
+    if(!approved)return out(res,400,{error:'School not approved'});
+    const invoiceId=id('SINV');
+    try{
+      await q('INSERT INTO school_invoices(id,school_id,invoice_reference,student_identifier,student_name,academic_term,amount_minor,currency,due_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[invoiceId,v.schoolId,v.invoiceReference,v.studentIdentifier,v.studentName,v.academicTerm,v.amountMinor,v.currency,v.dueAt]);
+    }catch(e){if(e.code==='23505')return out(res,409,{error:'Invoice reference already exists for this school'});throw e}
+    await audit(me.sub,'CREATE','SCHOOL_INVOICE',invoiceId,{schoolId:v.schoolId,invoiceReference:v.invoiceReference});
+    return out(res,201,{id:invoiceId,status:'ISSUED',schoolId:v.schoolId,invoiceReference:v.invoiceReference});
+  }
+  if(req.method==='POST'&&route==='api/fiepa/school-invoices/lookup'){
+    if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
+    const lookup=await body(req);
+    const schoolId=typeof lookup.schoolId==='string'?lookup.schoolId.trim():'',reference=typeof lookup.reference==='string'?lookup.reference.trim():'',studentIdentifier=typeof lookup.studentIdentifier==='string'?lookup.studentIdentifier.trim():'';
+    if(!schoolId||schoolId.length>128||!reference||reference.length>80||!studentIdentifier||studentIdentifier.length>100)return out(res,400,{error:'School, invoice reference and student identifier required'});
+    const row=(await q("SELECT si.id,si.school_id,si.invoice_reference,si.student_name,si.academic_term,si.amount_minor,si.currency,si.status,si.due_at,s.name AS school_name FROM school_invoices si JOIN schools s ON s.id=si.school_id WHERE si.school_id=$1 AND si.invoice_reference=$2 AND si.student_identifier=$3 AND s.status='APPROVED' AND si.status='ISSUED'",[schoolId,reference,studentIdentifier])).rows[0];
+    if(!row)return out(res,404,{error:'No payable invoice matched these details'});
+    return out(res,200,{invoice:row});
+  }
+  if(req.method==='POST'&&route==='api/fiepa/school-invoices/pay'){
+    if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
+    const b=await body(req);
+    if(typeof b.invoiceId!=='string'||b.invoiceId.length>128||!b.invoiceId.trim())return out(res,400,{error:'Valid invoice ID required'});
+    if(typeof b.studentIdentifier!=='string'||!b.studentIdentifier.trim()||b.studentIdentifier.length>100)return out(res,400,{error:'Student identifier required'});
+    if(b.amountMinor!==undefined&&(!Number.isSafeInteger(b.amountMinor)||b.amountMinor<=0))return out(res,400,{error:'Invalid payment amount'});
+    const kyc=(await q('SELECT kyc_status FROM users WHERE id=$1',[me.sub])).rows[0];
+    if(kyc?.kyc_status!=='VERIFIED')return out(res,403,{error:'Identity verification required'});
+    const client=await pool.connect();
+    let paymentId,schoolPaymentId,invoice;
+    try{
+      await client.query('BEGIN');
+      invoice=(await client.query("SELECT si.* FROM school_invoices si JOIN schools s ON s.id=si.school_id WHERE si.id=$1 AND s.status='APPROVED' FOR UPDATE OF si",[b.invoiceId])).rows[0];
+      if(!invoice){await client.query('ROLLBACK');return out(res,404,{error:'Approved school invoice not found'})}
+      if(invoice.status!=='ISSUED'){await client.query('ROLLBACK');return out(res,409,{error:'Invoice is not payable'})}
+      if(!Number.isSafeInteger(Number(invoice.amount_minor))){await client.query('ROLLBACK');return out(res,409,{error:'Invalid invoice amount'})}
+      if(invoice.student_identifier!==b.studentIdentifier.trim()){await client.query('ROLLBACK');return out(res,400,{error:'Student identifier does not match invoice'})}
+      const amount=Number(invoice.amount_minor);
+      if(!Number.isSafeInteger(amount)||amount<=0||invoice.currency!=='GHS'){await client.query('ROLLBACK');return out(res,409,{error:'Unsupported invoice amount or currency'})}
+      if(b.amountMinor!==undefined&&b.amountMinor!==amount){await client.query('ROLLBACK');return out(res,400,{error:'Amount does not match invoice'})}
+      if(invoice.due_at&&new Date(invoice.due_at).getTime()<Date.now()){await client.query('ROLLBACK');return out(res,409,{error:'Invoice has expired'})}
+      const debited=await client.query('UPDATE customer_wallets SET available_balance=available_balance-$1,updated_at=NOW() WHERE customer_id=$2 AND available_balance >= $1 RETURNING id',[amount,me.sub]);
+      if(!debited.rowCount){await client.query('ROLLBACK');return out(res,400,{error:'Insufficient wallet balance'})}
+      schoolPaymentId=id('SCH');paymentId=id('SIP');
+      await client.query('INSERT INTO school_payments(id,customer_id,school_id,student_name,student_id,term,amount,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[schoolPaymentId,me.sub,invoice.school_id,invoice.student_name,invoice.student_identifier,invoice.academic_term,amount,'PENDING']);
+      await client.query('INSERT INTO school_invoice_payments(id,invoice_id,customer_id,school_payment_id,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7)',[paymentId,invoice.id,me.sub,schoolPaymentId,amount,'PENDING']);
+      const funds=await ensureLedgerAccount(client,'CUSTOMER',me.sub,'FUNDS');
+      const payable=await ensureLedgerAccount(client,'SCHOOL',invoice.school_id,'PAYABLE');
+      await client.query('INSERT INTO ledger_entries(id,account_id,entry_type,amount,currency,reference) VALUES($1,$2,$3,$4,$5,$6),($7,$8,$9,$10,$11,$12)',[id('LED'),funds,'DEBIT',amount,'GHS','school:'+schoolPaymentId,id('LED'),payable,'CREDIT',amount,'GHS','school:'+schoolPaymentId]);
+      // Wallet-funded allocation is not proof of school settlement.
+      await client.query("UPDATE school_invoices SET status='PAID',paid_at=NOW() WHERE id=$1",[invoice.id]);
+      await client.query("UPDATE school_invoice_payments SET status='CONFIRMED',confirmed_at=NOW() WHERE id=$1",[paymentId]);
+      // School payment stays pending until actual external settlement is verified.
+      await client.query('INSERT INTO school_settlements(id,invoice_payment_id,school_id,amount_minor,currency) VALUES($1,$2,$3,$4,$5)',[id('SSET'),paymentId,invoice.school_id,amount,'GHS']);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+    try{await audit(me.sub,'PAY','SCHOOL_INVOICE',invoice.id,{schoolPaymentId,paymentId,amountMinor:Number(invoice.amount_minor)})}catch(err){console.error('Fiepa payment audit notification failed after commit',err)}
+    return out(res,201,{id:paymentId,schoolPaymentId,invoiceId:invoice.id,status:'CONFIRMED',settlementStatus:'PENDING',amountMinor:Number(invoice.amount_minor),currency:'GHS'});
+  }
+  if(req.method==='GET'&&route==='api/fiepa/my-school-payments'){
+    if(process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
+    // Explicit customer ownership check prevents leaking other families' student or payment details.
+    const rows=(await q("SELECT sip.id,sip.school_payment_id,sip.amount_minor,sip.currency,sip.status AS payment_status,sip.created_at,si.invoice_reference,si.student_name,si.academic_term,s.name AS school_name,COALESCE(ss.status,'PENDING') AS settlement_status,ss.verified_at AS settled_at FROM school_invoice_payments sip JOIN school_invoices si ON si.id=sip.invoice_id JOIN schools s ON s.id=si.school_id LEFT JOIN school_settlements ss ON ss.invoice_payment_id=sip.id WHERE sip.customer_id=$1 ORDER BY sip.created_at DESC LIMIT 100",[me.sub])).rows;
+    return out(res,200,{payments:rows});
+  }
+  if((route==='api/fiepa/school-settlements'||route.startsWith('api/fiepa/school-settlements/'))&&process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+  if(req.method==='GET'&&route==='api/fiepa/school-reconciliation'){
+    if(process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const summary=(await q("SELECT reconciliation_status,COUNT(*)::int AS count FROM fiepa_school_reconciliation GROUP BY reconciliation_status ORDER BY reconciliation_status")).rows;
+    const exceptions=(await q("SELECT invoice_payment_id,invoice_id,school_payment_id,school_id,invoice_payment_amount_minor,invoice_amount_minor,school_payment_amount_minor,settlement_amount_minor,wallet_payment_status,school_payment_status,settlement_status,reconciliation_status FROM fiepa_school_reconciliation WHERE reconciliation_status <> 'OK' ORDER BY invoice_payment_id LIMIT 100")).rows;
+    return out(res,200,{summary,exceptions,readOnly:true});
+  }
+  if(req.method==='GET'&&route==='api/fiepa/school-settlements'){
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const rows=(await q('SELECT ss.id,ss.invoice_payment_id,ss.school_id,ss.amount_minor,ss.currency,ss.status,ss.external_reference,ss.verified_at,ss.created_at,si.invoice_reference,s.name AS school_name FROM school_settlements ss JOIN school_invoice_payments sip ON sip.id=ss.invoice_payment_id JOIN school_invoices si ON si.id=sip.invoice_id JOIN schools s ON s.id=ss.school_id ORDER BY ss.created_at DESC LIMIT 100')).rows;
+    return out(res,200,{settlements:rows});
+  }
+  if(req.method==='POST'&&route.startsWith('api/fiepa/school-settlements/')&&route.endsWith('/verify')){
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const settlementId=route.slice('api/fiepa/school-settlements/'.length,-'/verify'.length);
+    if(!/^SSET_[a-f0-9-]{36}$/.test(settlementId))return out(res,400,{error:'Invalid settlement ID'});
+    const b=await body(req);
+    if(typeof b.externalReference!=='string'||!/^[-A-Za-z0-9_./]{8,120}$/.test(b.externalReference.trim()))return out(res,400,{error:'Valid external settlement reference required'});
+    if(typeof b.evidenceNote!=='string'||b.evidenceNote.trim().length<20||b.evidenceNote.length>2000)return out(res,400,{error:'Provide at least 20 characters describing independently verified settlement evidence'});
+    // An admin records evidence from an external payment provider/bank; this route does not send money.
+    const client=await pool.connect();
+    let settlement;
+    try{
+      await client.query('BEGIN');
+      const result=await client.query("UPDATE school_settlements SET status='SETTLED',external_reference=$1,evidence_note=$2,verified_by=$3,verified_at=NOW() WHERE id=$4 AND status='PENDING' RETURNING id,status,external_reference,verified_at,invoice_payment_id",[b.externalReference.trim(),b.evidenceNote.trim(),me.sub,settlementId]);
+      if(!result.rowCount){await client.query('ROLLBACK');return out(res,409,{error:'Settlement not pending or not found'})}
+      settlement=result.rows[0];
+      await client.query("UPDATE school_payments sp SET status='COMPLETED',completed_at=NOW() FROM school_invoice_payments sip WHERE sip.id=$1 AND sp.id=sip.school_payment_id AND sp.status='PENDING'",[settlement.invoice_payment_id]);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+    try{await audit(me.sub,'VERIFY','SCHOOL_SETTLEMENT',settlementId,{externalReference:b.externalReference.trim()})}catch(err){console.error('Fiepa settlement audit notification failed after commit',err)}
+    return out(res,200,{settlement:{id:settlement.id,status:settlement.status,external_reference:settlement.external_reference,verified_at:settlement.verified_at}});
+  }
+  if(req.method==='GET'&&route==='api/fiepa/school-invoices'){
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const rows=(await q('SELECT id,school_id,invoice_reference,student_identifier,student_name,academic_term,amount_minor,currency,status,due_at,created_at FROM school_invoices ORDER BY created_at DESC LIMIT 100')).rows;
+    return out(res,200,{invoices:rows});
+  }
+
     if(req.method==='POST'&&route==='api/transactions/authorize'){if(!role(me,'CUSTOMER','CONTRACTOR'))return out(res,403,{error:'Customer or contractor role required'});const b=await body(req),ir=await loadIdempotency(req,me.sub,b,q);if(ir?.status)return out(res,ir.status,ir.body);let v;if(role(me,'CUSTOMER'))v=(await q('SELECT v.*,p.customer_id FROM vouchers v JOIN projects p ON p.id=v.project_id WHERE v.id=$1 AND p.customer_id=$2',[b.voucherId,me.sub])).rows[0];else v=(await q("SELECT v.*,p.customer_id FROM vouchers v JOIN projects p ON p.id=v.project_id JOIN project_contractors pc ON pc.project_id=p.id WHERE v.id=$1 AND pc.contractor_id=$2 AND pc.status='VERIFIED'",[b.voucherId,me.sub])).rows[0];if(!v)return out(res,404,{error:'Voucher not found'});if(v.status==='CANCELLED'||v.status==='EXPIRED')return out(res,409,{error:'Voucher is not available'});if(v.expires_at&&new Date(v.expires_at)<new Date())return out(res,409,{error:'Voucher has expired'});const m=(await q("SELECT * FROM merchants WHERE id=$1 AND status='APPROVED'",[b.merchantId])).rows[0];if(!m)return out(res,400,{error:'Merchant not approved'});const cats=JSON.parse(m.categories_json||'[]');if(cats.length&&!cats.includes(v.category))return out(res,400,{error:'Merchant is not approved for this voucher category'});const remaining=Number(v.initial_amount)-Number(v.used_amount);if(!Number.isInteger(b.amount)||b.amount<=0||b.amount>remaining)return out(res,400,{error:'Amount exceeds voucher balance'});const tx=id('TXN'),code=crypto.randomBytes(6).toString('hex').toUpperCase(),risk=b.amount>=5000?'REVIEW':'CLEAR';await q('INSERT INTO transactions(id,voucher_id,project_id,customer_id,merchant_id,category,amount,status,authorization_code,risk_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[tx,v.id,v.project_id,v.customer_id,m.id,v.category,b.amount,'AUTHORIZED',code,risk]);await audit(me.sub,'AUTHORIZE_PURCHASE','TRANSACTION',tx,{amount:b.amount,merchant:m.name});const merchantUser=(await q('SELECT user_id FROM merchants WHERE id=$1',[m.id])).rows[0]?.user_id;await notify(me.sub,'TRANSACTION','Purchase authorized',`Authorization ${code} for GHS ${Number(b.amount).toFixed(2)} at ${m.name}.`);if(merchantUser&&merchantUser!==me.sub)await notify(merchantUser,'TRANSACTION','Purchase authorization received',`A PurposePay authorization ${code} for GHS ${Number(b.amount).toFixed(2)} is ready for your business.`);const contractorRows=(await q("SELECT contractor_id FROM project_contractors WHERE project_id=$1 AND status='VERIFIED'",[v.project_id])).rows;for(const c of contractorRows)if(c.contractor_id!==me.sub)await notify(c.contractor_id,'TRANSACTION','Purchase authorization issued',`Authorization ${code} for GHS ${Number(b.amount).toFixed(2)} was issued for the project.`);const response={transactionId:tx,authorizationCode:code,status:'AUTHORIZED',amount:b.amount,riskStatus:risk};await saveIdempotency(ir,me.sub,201,response,q);return out(res,201,response)}
   if(req.method==='GET'&&route==='api/transactions'){let rows;if(role(me,'CUSTOMER'))rows=(await q('SELECT t.*,m.name merchant_name,p.name project_name FROM transactions t LEFT JOIN merchants m ON m.id=t.merchant_id LEFT JOIN projects p ON p.id=t.project_id WHERE t.customer_id=$1 ORDER BY t.created_at DESC',[me.sub])).rows;else if(role(me,'MERCHANT'))rows=(await q('SELECT t.*,m.name merchant_name,p.name project_name FROM transactions t JOIN merchants m ON m.id=t.merchant_id LEFT JOIN projects p ON p.id=t.project_id WHERE m.user_id=$1 ORDER BY t.created_at DESC',[me.sub])).rows;else if(role(me,'ADMIN'))rows=(await q('SELECT t.*,m.name merchant_name,p.name project_name,u.email customer_email FROM transactions t LEFT JOIN merchants m ON m.id=t.merchant_id LEFT JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=t.customer_id ORDER BY t.created_at DESC')).rows;else return out(res,403,{error:'Not authorized'});rows=rows.map(x=>({...x,amount:Number(x.amount)}));return out(res,200,{transactions:rows})}
     if(req.method==='POST'&&route==='api/transactions/complete'){if(!role(me,'MERCHANT','ADMIN'))return out(res,403,{error:'Merchant or admin role required'});const b=await body(req),ir=await loadIdempotency(req,me.sub,b,q),client=await pool.connect();try{if(ir?.status)return out(res,ir.status,ir.body);await client.query('BEGIN');let sql='SELECT t.* FROM transactions t JOIN merchants m ON m.id=t.merchant_id WHERE t.id=$1 AND t.authorization_code=$2 AND m.user_id=$3 FOR UPDATE',params=[b.transactionId,b.authorizationCode,me.sub];if(role(me,'ADMIN')){sql='SELECT * FROM transactions WHERE id=$1 AND authorization_code=$2 FOR UPDATE';params=[b.transactionId,b.authorizationCode]}const tx=(await client.query(sql,params)).rows[0];if(!tx){await client.query('ROLLBACK');return out(res,404,{error:'Authorization not found'})}if(tx.risk_status==='BLOCKED'){await client.query('ROLLBACK');return out(res,403,{error:'Transaction is blocked by risk controls'})}if(tx.status!=='AUTHORIZED'){await client.query('ROLLBACK');return out(res,409,{error:'Transaction is not authorized'})}const v=(await client.query('SELECT * FROM vouchers WHERE id=$1 FOR UPDATE',[tx.voucher_id])).rows[0];if(!v||Number(tx.amount)>Number(v.initial_amount)-Number(v.used_amount))throw Error('Voucher balance changed');const used=Number(v.used_amount)+Number(tx.amount);await client.query('UPDATE vouchers SET used_amount=$1,status=$2 WHERE id=$3',[used,used>=Number(v.initial_amount)?'USED':'PARTIALLY_USED',v.id]);const receiptNumber='PP-RCP-'+Date.now().toString(36).toUpperCase()+'-'+crypto.randomBytes(3).toString('hex').toUpperCase();await client.query('UPDATE transactions SET status=$1,receipt_url=$2,receipt_number=$3,settlement_status=$4,completed_at=NOW() WHERE id=$5',['COMPLETED',b.receiptUrl||null,receiptNumber,'PENDING',tx.id]);await postPurchaseLedger(client,tx);await client.query('INSERT INTO settlements(id,transaction_id,merchant_id,amount,currency,status) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(transaction_id) DO NOTHING',[id('SET'),tx.id,tx.merchant_id,Number(tx.amount),PAYMENT_CURRENCY,'PENDING']);await client.query('COMMIT');await audit(me.sub,'COMPLETE_PURCHASE','TRANSACTION',tx.id,{receiptUrl:b.receiptUrl||null});await notify(tx.customer_id,'TRANSACTION','Purchase completed',`Purchase ${receiptNumber} for GHS ${Number(tx.amount).toFixed(2)} was completed.`);const merchantUser=(await q('SELECT user_id FROM merchants WHERE id=$1',[tx.merchant_id])).rows[0]?.user_id;await notify(merchantUser,'SETTLEMENT','Settlement created',`A settlement of GHS ${Number(tx.amount).toFixed(2)} is pending for transaction ${tx.id}.`);const response={transactionId:tx.id,status:'COMPLETED',receiptNumber};await saveIdempotency(ir,me.sub,200,response,q);return out(res,200,response)}catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}}
