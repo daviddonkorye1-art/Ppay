@@ -208,6 +208,26 @@ async function main(req,res){
   if(req.method==='GET'&&route==='api/merchants'){const rows=(await q("SELECT * FROM merchants WHERE status='APPROVED' ORDER BY name")).rows.map(m=>({...m,categories:JSON.parse(m.categories_json||'[]')}));return out(res,200,{merchants:rows})}
   if(req.method==='GET'&&route==='api/schools')return out(res,200,{schools:(await q("SELECT * FROM schools WHERE status='APPROVED' ORDER BY name")).rows})
 
+  // Admin-only provider intake. Submission never approves a provider.
+  if(req.method==='POST'&&route==='api/fiepa/healthcare/providers'){
+    if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const b=await body(req);
+    const legalName=typeof b.legalName==='string'?b.legalName.trim():'';
+    const providerType=typeof b.providerType==='string'?b.providerType.trim().toUpperCase():'';
+    const licenseReference=typeof b.licenseReference==='string'?b.licenseReference.trim():'';
+    if(!legalName||legalName.length>200||!['PHARMACY','HOSPITAL','CLINIC'].includes(providerType)||licenseReference.length>120)return out(res,400,{error:'Valid legal name, provider type and license reference are required'});
+    if(!licenseReference)return out(res,400,{error:'License reference is required for verification review'});
+    const providerId=id('HCP');
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      await client.query("INSERT INTO fiepa_healthcare_providers(id,legal_name,provider_type,license_reference,verification_status) VALUES($1,$2,$3,$4,'PENDING')",[providerId,legalName,providerType,licenseReference]);
+      await client.query('INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,metadata_json) VALUES($1,$2,$3,$4,$5,$6)',[id('AUD'),me.sub,'CREATE','FIEPA_HEALTHCARE_PROVIDER',providerId,JSON.stringify({providerType})]);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+    return out(res,201,{id:providerId,legalName,providerType,verificationStatus:'PENDING'});
+  }
   // Healthcare catalog is read-only. No patient records or payment operations are exposed.
   if(req.method==='GET'&&route==='api/fiepa/healthcare/providers'){
     if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
