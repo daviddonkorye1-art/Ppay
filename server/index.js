@@ -209,7 +209,7 @@ async function main(req,res){
   if(req.method==='GET'&&route==='api/schools')return out(res,200,{schools:(await q("SELECT * FROM schools WHERE status='APPROVED' ORDER BY name")).rows})
 
   // Fiepa Pay invoices are opt-in and admin-issued until school account permissions are implemented.
-  if((route==='api/fiepa/school-invoices'||route==='api/fiepa/school-invoices/pay') && process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+  if((route==='api/fiepa/school-invoices'||route==='api/fiepa/school-invoices/pay'||route==='api/fiepa/school-invoices/lookup') && process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
   if(req.method==='POST'&&route==='api/fiepa/school-invoices'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
     const parsed=validateSchoolInvoice(await body(req));
@@ -223,6 +223,15 @@ async function main(req,res){
     }catch(e){if(e.code==='23505')return out(res,409,{error:'Invoice reference already exists for this school'});throw e}
     await audit(me.sub,'CREATE','SCHOOL_INVOICE',invoiceId,{schoolId:v.schoolId,invoiceReference:v.invoiceReference});
     return out(res,201,{id:invoiceId,status:'ISSUED',schoolId:v.schoolId,invoiceReference:v.invoiceReference});
+  }
+  if(req.method==='GET'&&route==='api/fiepa/school-invoices/lookup'){
+    if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
+    const params=new URL(req.url,'http://localhost').searchParams;
+    const schoolId=params.get('schoolId')||'',reference=params.get('reference')||'',studentIdentifier=params.get('studentIdentifier')||'';
+    if(!schoolId||schoolId.length>128||!reference||reference.length>80||!studentIdentifier||studentIdentifier.length>100)return out(res,400,{error:'School, invoice reference and student identifier required'});
+    const row=(await q("SELECT si.id,si.school_id,si.invoice_reference,si.student_name,si.academic_term,si.amount_minor,si.currency,si.status,si.due_at,s.name AS school_name FROM school_invoices si JOIN schools s ON s.id=si.school_id WHERE si.school_id=$1 AND si.invoice_reference=$2 AND si.student_identifier=$3 AND s.status='APPROVED' AND si.status='ISSUED'",[schoolId,reference,studentIdentifier])).rows[0];
+    if(!row)return out(res,404,{error:'No payable invoice matched these details'});
+    return out(res,200,{invoice:row});
   }
   if(req.method==='POST'&&route==='api/fiepa/school-invoices/pay'){
     if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
