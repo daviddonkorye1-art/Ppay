@@ -6,11 +6,13 @@ CREATE TABLE IF NOT EXISTS fiepa_healthcare_providers (
  legal_name TEXT NOT NULL,
  provider_type TEXT NOT NULL CHECK(provider_type IN ('PHARMACY','HOSPITAL','CLINIC')),
  license_reference TEXT,
+ submitted_by TEXT REFERENCES users(id),
+ review_reference TEXT,
  verification_status TEXT NOT NULL DEFAULT 'PENDING' CHECK(verification_status IN ('PENDING','APPROVED','REJECTED','SUSPENDED')),
  verified_by TEXT REFERENCES users(id),
  verified_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- CHECK(verification_status <> 'APPROVED' OR (license_reference IS NOT NULL AND verified_by IS NOT NULL AND verified_at IS NOT NULL))
+ CHECK(verification_status <> 'APPROVED' OR (license_reference IS NOT NULL AND submitted_by IS NOT NULL AND review_reference IS NOT NULL AND verified_by IS NOT NULL AND verified_at IS NOT NULL AND submitted_by <> verified_by))
 );
 CREATE TABLE IF NOT EXISTS fiepa_hospital_invoices (
  id TEXT PRIMARY KEY,
