@@ -57,6 +57,7 @@ async function schoolView(){const s=await api('/schools');const p=await api('/sc
 async function paySchool(e){e.preventDefault();try{const r=await api('/schools/payments',{method:'POST',body:JSON.stringify({schoolId:school.value,studentName:student.value,studentId:studentId.value,term:term.value,amount:Number(schoolAmt.value)})});toast(`School payment ${r.id} submitted`);go('school')}catch(err){toast(err.message,'error')}}
 async function fiepaInvoiceView(){
  const schools=await api('/schools');
+ let history=[];try{history=(await api('/fiepa/my-school-payments')).payments||[]}catch(e){}
  return `<div class="page-title"><h1>Fiepa Pay · School invoice</h1></div>
  <div class="card"><p>Find an invoice issued by an approved school. Confirm the student and amount before paying from your wallet.</p>
  <form class="form" onsubmit="lookupFiepaInvoice(event)">
@@ -64,7 +65,8 @@ async function fiepaInvoiceView(){
  <div class="row"><div class="field"><label>Invoice reference</label><input id="fiepaRef" required maxlength="80" autocomplete="off"></div>
  <div class="field"><label>Student ID</label><input id="fiepaStudent" required maxlength="100" autocomplete="off"></div></div>
  <button class="btn primary">Find invoice</button></form></div>
- <div id="fiepaInvoiceResult" class="card gap"><p class="muted">Invoice details will appear here after verification.</p></div>`;
+ <div id="fiepaInvoiceResult" class="card gap"><p class="muted">Invoice details will appear here after verification.</p></div>
+ <div class="card gap"><h3>My school payments</h3><p class="muted">Payment confirmation and school settlement are tracked separately.</p><div class="table-wrap">${table(['School','Invoice','Amount','Wallet payment','School settlement'],history.map(x=>[esc(x.school_name),esc(x.invoice_reference),money(Number(x.amount_minor)/100),badge(x.payment_status),badge(x.settlement_status)]))}</div></div>`;
 }
 async function lookupFiepaInvoice(e){
  e.preventDefault();
