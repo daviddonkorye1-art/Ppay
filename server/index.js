@@ -228,6 +228,30 @@ async function main(req,res){
     }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
     return out(res,201,{id:providerId,legalName,providerType,verificationStatus:'PENDING'});
   }
+  // Independent administrative review; evidence is referenced, never publicly returned.
+  if(req.method==='POST'&&route.startsWith('api/fiepa/healthcare/providers/')&&route.endsWith('/review')){
+    if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const providerId=route.slice('api/fiepa/healthcare/providers/'.length,-'/review'.length);
+    if(!/^HCP_[0-9a-f-]{36}$/i.test(providerId))return out(res,400,{error:'Invalid provider ID'});
+    const b=await body(req);
+    const decision=typeof b.decision==='string'?b.decision.trim().toUpperCase():'';
+    const reviewReference=typeof b.reviewReference==='string'?b.reviewReference.trim():'';
+    if(!['APPROVED','REJECTED'].includes(decision)||!reviewReference||reviewReference.length>120)return out(res,400,{error:'Decision and review evidence reference required'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const current=(await client.query('SELECT submitted_by,verification_status,license_reference FROM fiepa_healthcare_providers WHERE id=$1 FOR UPDATE',[providerId])).rows[0];
+      if(!current){await client.query('ROLLBACK');return out(res,404,{error:'Provider not found'})}
+      if(current.verification_status!=='PENDING'){await client.query('ROLLBACK');return out(res,409,{error:'Provider is not pending review'})}
+      if(!current.submitted_by||current.submitted_by===me.sub){await client.query('ROLLBACK');return out(res,403,{error:'Independent reviewer required'})}
+      if(decision==='APPROVED'&&!current.license_reference){await client.query('ROLLBACK');return out(res,409,{error:'License reference missing'})}
+      await client.query('UPDATE fiepa_healthcare_providers SET verification_status=$1,review_reference=$2,verified_by=$3,verified_at=NOW() WHERE id=$4',[decision,reviewReference,me.sub,providerId]);
+      await client.query('INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,metadata_json) VALUES($1,$2,$3,$4,$5,$6)',[id('AUD'),me.sub,'REVIEW','FIEPA_HEALTHCARE_PROVIDER',providerId,JSON.stringify({decision,reviewReference})]);
+      await client.query('COMMIT');
+      return out(res,200,{id:providerId,verificationStatus:decision});
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+  }
   // Healthcare catalog is read-only. No patient records or payment operations are exposed.
   if(req.method==='GET'&&route==='api/fiepa/healthcare/providers'){
     if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
