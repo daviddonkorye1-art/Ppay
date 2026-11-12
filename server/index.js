@@ -208,6 +208,15 @@ async function main(req,res){
   if(req.method==='GET'&&route==='api/merchants'){const rows=(await q("SELECT * FROM merchants WHERE status='APPROVED' ORDER BY name")).rows.map(m=>({...m,categories:JSON.parse(m.categories_json||'[]')}));return out(res,200,{merchants:rows})}
   if(req.method==='GET'&&route==='api/schools')return out(res,200,{schools:(await q("SELECT * FROM schools WHERE status='APPROVED' ORDER BY name")).rows})
 
+  // Healthcare catalog is read-only. No patient records or payment operations are exposed.
+  if(req.method==='GET'&&route==='api/fiepa/healthcare/providers'){
+    if(process.env.FIEPA_HEALTHCARE_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'CUSTOMER')&&!role(me,'ADMIN'))return out(res,403,{error:'Customer or admin role required'});
+    const type=String(url.searchParams.get('type')||'').toUpperCase();
+    if(type&&!['PHARMACY','HOSPITAL','CLINIC'].includes(type))return out(res,400,{error:'Unsupported healthcare provider type'});
+    const providers=(await q("SELECT id,legal_name,provider_type FROM fiepa_healthcare_providers WHERE verification_status='APPROVED' AND ($1::text='' OR provider_type=$1) ORDER BY legal_name LIMIT 100",[type])).rows;
+    return out(res,200,{providers});
+  }
   // Fiepa Pay invoices are opt-in and admin-issued until school account permissions are implemented.
   if((route==='api/fiepa/school-invoices'||route==='api/fiepa/school-invoices/pay'||route==='api/fiepa/school-invoices/lookup') && process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
   if(req.method==='POST'&&route==='api/fiepa/school-invoices'){
