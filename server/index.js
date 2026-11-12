@@ -209,7 +209,7 @@ async function main(req,res){
   if(req.method==='GET'&&route==='api/schools')return out(res,200,{schools:(await q("SELECT * FROM schools WHERE status='APPROVED' ORDER BY name")).rows})
 
   // Fiepa Pay invoices are opt-in and admin-issued until school account permissions are implemented.
-  if(route==='api/fiepa/school-invoices' && process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+  if((route==='api/fiepa/school-invoices'||route==='api/fiepa/school-invoices/pay') && process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
   if(req.method==='POST'&&route==='api/fiepa/school-invoices'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
     const parsed=validateSchoolInvoice(await body(req));
@@ -223,6 +223,43 @@ async function main(req,res){
     }catch(e){if(e.code==='23505')return out(res,409,{error:'Invoice reference already exists for this school'});throw e}
     await audit(me.sub,'CREATE','SCHOOL_INVOICE',invoiceId,{schoolId:v.schoolId,invoiceReference:v.invoiceReference});
     return out(res,201,{id:invoiceId,status:'ISSUED',schoolId:v.schoolId,invoiceReference:v.invoiceReference});
+  }
+  if(req.method==='POST'&&route==='api/fiepa/school-invoices/pay'){
+    if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
+    const b=await body(req);
+    if(typeof b.invoiceId!=='string'||b.invoiceId.length>128||!b.invoiceId.trim())return out(res,400,{error:'Valid invoice ID required'});
+    if(typeof b.studentIdentifier!=='string'||!b.studentIdentifier.trim()||b.studentIdentifier.length>100)return out(res,400,{error:'Student identifier required'});
+    if(b.amountMinor!==undefined&&(!Number.isSafeInteger(b.amountMinor)||b.amountMinor<=0))return out(res,400,{error:'Invalid payment amount'});
+    const kyc=(await q('SELECT kyc_status FROM users WHERE id=$1',[me.sub])).rows[0];
+    if(kyc?.kyc_status!=='VERIFIED')return out(res,403,{error:'Identity verification required'});
+    const client=await pool.connect();
+    let paymentId,schoolPaymentId,invoice;
+    try{
+      await client.query('BEGIN');
+      invoice=(await client.query("SELECT si.* FROM school_invoices si JOIN schools s ON s.id=si.school_id WHERE si.id=$1 AND s.status='APPROVED' FOR UPDATE OF si",[b.invoiceId])).rows[0];
+      if(!invoice){await client.query('ROLLBACK');return out(res,404,{error:'Approved school invoice not found'})}
+      if(invoice.status!=='ISSUED'){await client.query('ROLLBACK');return out(res,409,{error:'Invoice is not payable'})}
+      if(invoice.student_identifier!==b.studentIdentifier.trim()){await client.query('ROLLBACK');return out(res,400,{error:'Student identifier does not match invoice'})}
+      const amount=Number(invoice.amount_minor);
+      if(!Number.isSafeInteger(amount)||amount<=0||invoice.currency!=='GHS'){await client.query('ROLLBACK');return out(res,409,{error:'Unsupported invoice amount or currency'})}
+      if(b.amountMinor!==undefined&&b.amountMinor!==amount){await client.query('ROLLBACK');return out(res,400,{error:'Amount does not match invoice'})}
+      if(invoice.due_at&&new Date(invoice.due_at).getTime()<Date.now()){await client.query('ROLLBACK');return out(res,409,{error:'Invoice has expired'})}
+      const debited=await client.query('UPDATE customer_wallets SET available_balance=available_balance-$1,updated_at=NOW() WHERE customer_id=$2 AND available_balance >= $1 RETURNING id',[amount,me.sub]);
+      if(!debited.rowCount){await client.query('ROLLBACK');return out(res,400,{error:'Insufficient wallet balance'})}
+      schoolPaymentId=id('SCH');paymentId=id('SIP');
+      await client.query('INSERT INTO school_payments(id,customer_id,school_id,student_name,student_id,term,amount,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[schoolPaymentId,me.sub,invoice.school_id,invoice.student_name,invoice.student_identifier,invoice.academic_term,amount,'PENDING']);
+      await client.query('INSERT INTO school_invoice_payments(id,invoice_id,customer_id,school_payment_id,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7)',[paymentId,invoice.id,me.sub,schoolPaymentId,amount,'PENDING']);
+      const funds=await ensureLedgerAccount(client,'CUSTOMER',me.sub,'FUNDS');
+      const payable=await ensureLedgerAccount(client,'SCHOOL',invoice.school_id,'PAYABLE');
+      await client.query('INSERT INTO ledger_entries(id,account_id,entry_type,amount,currency,reference) VALUES($1,$2,$3,$4,$5,$6),($7,$8,$9,$10,$11,$12)',[id('LED'),funds,'DEBIT',amount,'GHS','school:'+schoolPaymentId,id('LED'),payable,'CREDIT',amount,'GHS','school:'+schoolPaymentId]);
+      // Wallet-funded allocation is not proof of school settlement.
+      await client.query("UPDATE school_invoices SET status='PAID',paid_at=NOW() WHERE id=$1",[invoice.id]);
+      await client.query("UPDATE school_invoice_payments SET status='CONFIRMED',confirmed_at=NOW() WHERE id=$1",[paymentId]);
+      await client.query("UPDATE school_payments SET status='COMPLETED',completed_at=NOW() WHERE id=$1",[schoolPaymentId]);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
+    await audit(me.sub,'PAY','SCHOOL_INVOICE',invoice.id,{schoolPaymentId,paymentId,amountMinor:Number(invoice.amount_minor)});
+    return out(res,201,{id:paymentId,schoolPaymentId,invoiceId:invoice.id,status:'CONFIRMED',settlementStatus:'NOT_SETTLED',amountMinor:Number(invoice.amount_minor),currency:'GHS'});
   }
   if(req.method==='GET'&&route==='api/fiepa/school-invoices'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
