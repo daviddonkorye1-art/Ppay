@@ -114,7 +114,7 @@ async function fiepaSettlementsView(){
  <div class="card"><span class="label">Awaiting verification</span><div class="stat">${pending}</div></div></div>
  <div class="card gap"><p class="muted">A customer's wallet payment is not proof that a school received funds. Only record SETTLED after independently checking the receiving bank or payment provider.</p>
  <div class="table-wrap">${table(['School','Invoice','Amount','Status','External reference','Action'],rows.map(x=>[
- x.school_name,x.invoice_reference,money(Number(x.amount_minor)/100),badge(x.status),x.external_reference||'—',
+ esc(x.school_name),esc(x.invoice_reference),money(Number(x.amount_minor)/100),badge(x.status),esc(x.external_reference||'—'),
  x.status==='PENDING'?`<button class="btn secondary" onclick="verifyFiepaSettlement('${esc(x.id)}')">Record evidence</button>`:'Verified'
  ]))}</div></div>`;
 }
