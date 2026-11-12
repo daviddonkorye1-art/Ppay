@@ -272,6 +272,13 @@ async function main(req,res){
     await audit(me.sub,'PAY','SCHOOL_INVOICE',invoice.id,{schoolPaymentId,paymentId,amountMinor:Number(invoice.amount_minor)});
     return out(res,201,{id:paymentId,schoolPaymentId,invoiceId:invoice.id,status:'CONFIRMED',settlementStatus:'NOT_SETTLED',amountMinor:Number(invoice.amount_minor),currency:'GHS'});
   }
+  if(req.method==='GET'&&route==='api/fiepa/my-school-payments'){
+    if(process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
+    // Explicit customer ownership check prevents leaking other families' student or payment details.
+    const rows=(await q("SELECT sip.id,sip.school_payment_id,sip.amount_minor,sip.currency,sip.status AS payment_status,sip.created_at,si.invoice_reference,si.student_name,si.academic_term,s.name AS school_name,COALESCE(ss.status,'PENDING') AS settlement_status,ss.verified_at AS settled_at FROM school_invoice_payments sip JOIN school_invoices si ON si.id=sip.invoice_id JOIN schools s ON s.id=si.school_id LEFT JOIN school_settlements ss ON ss.invoice_payment_id=sip.id WHERE sip.customer_id=$1 ORDER BY sip.created_at DESC LIMIT 100",[me.sub])).rows;
+    return out(res,200,{payments:rows});
+  }
   if((route==='api/fiepa/school-settlements'||route.startsWith('api/fiepa/school-settlements/'))&&process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
   if(req.method==='GET'&&route==='api/fiepa/school-settlements'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
