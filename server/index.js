@@ -280,6 +280,13 @@ async function main(req,res){
     return out(res,200,{payments:rows});
   }
   if((route==='api/fiepa/school-settlements'||route.startsWith('api/fiepa/school-settlements/'))&&process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+  if(req.method==='GET'&&route==='api/fiepa/school-reconciliation'){
+    if(process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const summary=(await q("SELECT reconciliation_status,COUNT(*)::int AS count FROM fiepa_school_reconciliation GROUP BY reconciliation_status ORDER BY reconciliation_status")).rows;
+    const exceptions=(await q("SELECT invoice_payment_id,invoice_id,school_payment_id,school_id,invoice_payment_amount_minor,invoice_amount_minor,school_payment_amount_minor,settlement_amount_minor,wallet_payment_status,school_payment_status,settlement_status,reconciliation_status FROM fiepa_school_reconciliation WHERE reconciliation_status <> 'OK' ORDER BY invoice_payment_id LIMIT 100")).rows;
+    return out(res,200,{summary,exceptions,readOnly:true});
+  }
   if(req.method==='GET'&&route==='api/fiepa/school-settlements'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
     const rows=(await q('SELECT ss.id,ss.invoice_payment_id,ss.school_id,ss.amount_minor,ss.currency,ss.status,ss.external_reference,ss.verified_at,ss.created_at,si.invoice_reference,s.name AS school_name FROM school_settlements ss JOIN school_invoice_payments sip ON sip.id=ss.invoice_payment_id JOIN school_invoices si ON si.id=sip.invoice_id JOIN schools s ON s.id=ss.school_id ORDER BY ss.created_at DESC LIMIT 100')).rows;
