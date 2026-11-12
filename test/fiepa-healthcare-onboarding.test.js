@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const s=readFileSync(new URL('../server/index.js',import.meta.url),'utf8');
+const start=s.indexOf("if(req.method==='POST'&&route==='api/fiepa/healthcare/providers')");
+const end=s.indexOf('  // Healthcare catalog is read-only.',start);
+const section=s.slice(start,end);
+test('healthcare provider intake requires admin and enabled flag',()=>{assert.ok(start>=0&&end>start);assert.match(section,/FIEPA_HEALTHCARE_ENABLED'!=='true'/);assert.match(section,/role\(me,'ADMIN'\)/)});
+test('new healthcare provider is pending, not approved',()=>{assert.match(section,/verification_status\) VALUES\(\$1,\$2,\$3,\$4,'PENDING'\)/);assert.match(section,/verificationStatus:'PENDING'/)});
+test('healthcare provider intake validates legal name, type and license',()=>{assert.match(section,/legalName\.length>200/);assert.match(section,/licenseReference\.length>120/);assert.match(section,/\['PHARMACY','HOSPITAL','CLINIC'\]/)});
+test('healthcare provider intake writes audit in same transaction',()=>{assert.match(section,/await client.query\('BEGIN'\)/);assert.match(section,/INSERT INTO audit_logs/);assert.match(section,/await client.query\('COMMIT'\)/);assert.match(section,/await client.query\('ROLLBACK'\)/)});
