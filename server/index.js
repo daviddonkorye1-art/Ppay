@@ -269,8 +269,8 @@ async function main(req,res){
       await client.query('INSERT INTO school_settlements(id,invoice_payment_id,school_id,amount_minor,currency) VALUES($1,$2,$3,$4,$5)',[id('SSET'),paymentId,invoice.school_id,amount,'GHS']);
       await client.query('COMMIT');
     }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
-    await audit(me.sub,'PAY','SCHOOL_INVOICE',invoice.id,{schoolPaymentId,paymentId,amountMinor:Number(invoice.amount_minor)});
-    return out(res,201,{id:paymentId,schoolPaymentId,invoiceId:invoice.id,status:'CONFIRMED',settlementStatus:'NOT_SETTLED',amountMinor:Number(invoice.amount_minor),currency:'GHS'});
+    try{await audit(me.sub,'PAY','SCHOOL_INVOICE',invoice.id,{schoolPaymentId,paymentId,amountMinor:Number(invoice.amount_minor)})}catch(err){console.error('Fiepa payment audit notification failed after commit',err)}
+    return out(res,201,{id:paymentId,schoolPaymentId,invoiceId:invoice.id,status:'CONFIRMED',settlementStatus:'PENDING',amountMinor:Number(invoice.amount_minor),currency:'GHS'});
   }
   if(req.method==='GET'&&route==='api/fiepa/my-school-payments'){
     if(process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
@@ -303,7 +303,7 @@ async function main(req,res){
       await client.query("UPDATE school_payments sp SET status='COMPLETED',completed_at=NOW() FROM school_invoice_payments sip WHERE sip.id=$1 AND sp.id=sip.school_payment_id AND sp.status='PENDING'",[settlement.invoice_payment_id]);
       await client.query('COMMIT');
     }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
-    await audit(me.sub,'VERIFY','SCHOOL_SETTLEMENT',settlementId,{externalReference:b.externalReference.trim()});
+    try{await audit(me.sub,'VERIFY','SCHOOL_SETTLEMENT',settlementId,{externalReference:b.externalReference.trim()})}catch(err){console.error('Fiepa settlement audit notification failed after commit',err)}
     return out(res,200,{settlement:{id:settlement.id,status:settlement.status,external_reference:settlement.external_reference,verified_at:settlement.verified_at}});
   }
   if(req.method==='GET'&&route==='api/fiepa/school-invoices'){
