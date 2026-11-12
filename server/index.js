@@ -265,7 +265,7 @@ async function main(req,res){
       // Wallet-funded allocation is not proof of school settlement.
       await client.query("UPDATE school_invoices SET status='PAID',paid_at=NOW() WHERE id=$1",[invoice.id]);
       await client.query("UPDATE school_invoice_payments SET status='CONFIRMED',confirmed_at=NOW() WHERE id=$1",[paymentId]);
-      await client.query("UPDATE school_payments SET status='COMPLETED',completed_at=NOW() WHERE id=$1",[schoolPaymentId]);
+      // School payment stays pending until actual external settlement is verified.
       await client.query('INSERT INTO school_settlements(id,invoice_payment_id,school_id,amount_minor,currency) VALUES($1,$2,$3,$4,$5)',[id('SSET'),paymentId,invoice.school_id,amount,'GHS']);
       await client.query('COMMIT');
     }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
@@ -293,10 +293,18 @@ async function main(req,res){
     if(typeof b.externalReference!=='string'||!/^[-A-Za-z0-9_./]{8,120}$/.test(b.externalReference.trim()))return out(res,400,{error:'Valid external settlement reference required'});
     if(typeof b.evidenceNote!=='string'||b.evidenceNote.trim().length<20||b.evidenceNote.length>2000)return out(res,400,{error:'Provide at least 20 characters describing independently verified settlement evidence'});
     // An admin records evidence from an external payment provider/bank; this route does not send money.
-    const result=await q("UPDATE school_settlements SET status='SETTLED',external_reference=$1,evidence_note=$2,verified_by=$3,verified_at=NOW() WHERE id=$4 AND status='PENDING' RETURNING id,status,external_reference,verified_at",[b.externalReference.trim(),b.evidenceNote.trim(),me.sub,settlementId]);
-    if(!result.rowCount)return out(res,409,{error:'Settlement not pending or not found'});
+    const client=await pool.connect();
+    let settlement;
+    try{
+      await client.query('BEGIN');
+      const result=await client.query("UPDATE school_settlements SET status='SETTLED',external_reference=$1,evidence_note=$2,verified_by=$3,verified_at=NOW() WHERE id=$4 AND status='PENDING' RETURNING id,status,external_reference,verified_at,invoice_payment_id",[b.externalReference.trim(),b.evidenceNote.trim(),me.sub,settlementId]);
+      if(!result.rowCount){await client.query('ROLLBACK');return out(res,409,{error:'Settlement not pending or not found'})}
+      settlement=result.rows[0];
+      await client.query("UPDATE school_payments sp SET status='COMPLETED',completed_at=NOW() FROM school_invoice_payments sip WHERE sip.id=$1 AND sp.id=sip.school_payment_id AND sp.status='PENDING'",[settlement.invoice_payment_id]);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
     await audit(me.sub,'VERIFY','SCHOOL_SETTLEMENT',settlementId,{externalReference:b.externalReference.trim()});
-    return out(res,200,{settlement:result.rows[0]});
+    return out(res,200,{settlement:{id:settlement.id,status:settlement.status,external_reference:settlement.external_reference,verified_at:settlement.verified_at}});
   }
   if(req.method==='GET'&&route==='api/fiepa/school-invoices'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
