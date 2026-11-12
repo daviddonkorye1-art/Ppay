@@ -224,10 +224,10 @@ async function main(req,res){
     await audit(me.sub,'CREATE','SCHOOL_INVOICE',invoiceId,{schoolId:v.schoolId,invoiceReference:v.invoiceReference});
     return out(res,201,{id:invoiceId,status:'ISSUED',schoolId:v.schoolId,invoiceReference:v.invoiceReference});
   }
-  if(req.method==='GET'&&route==='api/fiepa/school-invoices/lookup'){
+  if(req.method==='POST'&&route==='api/fiepa/school-invoices/lookup'){
     if(!role(me,'CUSTOMER'))return out(res,403,{error:'Customer role required'});
-    const params=new URL(req.url,'http://localhost').searchParams;
-    const schoolId=params.get('schoolId')||'',reference=params.get('reference')||'',studentIdentifier=params.get('studentIdentifier')||'';
+    const lookup=await body(req);
+    const schoolId=typeof lookup.schoolId==='string'?lookup.schoolId.trim():'',reference=typeof lookup.reference==='string'?lookup.reference.trim():'',studentIdentifier=typeof lookup.studentIdentifier==='string'?lookup.studentIdentifier.trim():'';
     if(!schoolId||schoolId.length>128||!reference||reference.length>80||!studentIdentifier||studentIdentifier.length>100)return out(res,400,{error:'School, invoice reference and student identifier required'});
     const row=(await q("SELECT si.id,si.school_id,si.invoice_reference,si.student_name,si.academic_term,si.amount_minor,si.currency,si.status,si.due_at,s.name AS school_name FROM school_invoices si JOIN schools s ON s.id=si.school_id WHERE si.school_id=$1 AND si.invoice_reference=$2 AND si.student_identifier=$3 AND s.status='APPROVED' AND si.status='ISSUED'",[schoolId,reference,studentIdentifier])).rows[0];
     if(!row)return out(res,404,{error:'No payable invoice matched these details'});
