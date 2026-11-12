@@ -5,7 +5,7 @@ let page = 'dashboard';
 let state = {};
 
 const nav = {
- CUSTOMER:[['dashboard','Dashboard'],['funding','Add Funds'],['projects','My Projects'],['build','Build Voucher'],['school','School Payment'],['transactions','Transactions'],['profile','Profile & KYC'],['disputes','Disputes']],
+ CUSTOMER:[['dashboard','Dashboard'],['funding','Add Funds'],['projects','My Projects'],['build','Build Voucher'],['school','School Payment'],['fiepaInvoice','Fiepa Invoice'],['transactions','Transactions'],['profile','Profile & KYC'],['disputes','Disputes']],
  CONTRACTOR:[['dashboard','Dashboard'],['requests','Project Requests'],['purchase','Purchase Authorization'],['history','Purchase History']],
  MERCHANT:[['dashboard','Dashboard'],['onboarding','Business Onboarding'],['payout','Payout Account'],['verify','Verify Authorization'],['sales','Sales'],['settlements','Settlements']],
  ADMIN:[['dashboard','Control Center'],['operations','Operations'],['financial','Financial Integrity'],['reconexceptions','Recon Exceptions'],['kyc','KYC Review'],['transactions','Transactions'],['disputes','Disputes'],['settlements','Settlements'],['reconciliation','Reconciliation'],['risk','Risk & Fraud'],['audit','Audit Logs']]
@@ -45,7 +45,7 @@ async function mount(){if(token&&user){await refresh();if(!token||!user){documen
 render = mount;
 
 async function customerPage(){
- if(page==='funding')return fundingView(); if(page==='projects')return projectsView(); if(page==='build')return buildView(); if(page==='school')return schoolView(); if(page==='transactions')return transactionsView(); if(page==='profile')return profileView(); if(page==='disputes')return disputesView(); if(page==='notifications')return notificationsView();
+ if(page==='funding')return fundingView(); if(page==='projects')return projectsView(); if(page==='build')return buildView(); if(page==='school')return schoolView(); if(page==='fiepaInvoice')return fiepaInvoiceView(); if(page==='transactions')return transactionsView(); if(page==='profile')return profileView(); if(page==='disputes')return disputesView(); if(page==='notifications')return notificationsView();
  const d=await api('/dashboard'); const v=await api('/vouchers'); return `<div class="hero"><h2>Support your family back home.</h2><p>Pay for specific things in Ghana without sending unrestricted cash.</p></div><div class="grid"><div class="card"><span class="label">Projects</span><div class="stat">${d.stats.projects}</div></div><div class="card"><span class="label">Vouchers</span><div class="stat">${d.stats.vouchers}</div></div><div class="card"><span class="label">Transactions</span><div class="stat">${d.stats.transactions}</div></div><div class="card"><span class="label">KYC</span><div class="stat">${badge(user.kycStatus)}</div></div></div><div class="grid2 gap"><div class="card"><h3>Build Voucher</h3><p class="muted">Restrict funds to a construction category and approved merchants.</p><button class="btn primary" onclick="go('build')">Create voucher</button></div><div class="card"><h3>School Payment</h3><p class="muted">Submit a direct payment to an approved school.</p><button class="btn secondary" onclick="go('school')">Pay school fees</button></div></div><div class="card gap"><h3>Recent vouchers</h3>${v.vouchers.length?table(['Code','Project','Category','Initial','Remaining','Status'],v.vouchers.slice(0,5).map(x=>[`PP-BLD-${x.id.slice(-8).toUpperCase()}`,x.project_name,x.category,money(x.initial_amount),money(x.remaining_amount),badge(x.status)])):empty('No vouchers yet.')}</div>`;
 }
 async function inviteContractor(e,projectId){e.preventDefault();const input=document.getElementById('invite-'+projectId);try{await api('/projects/'+projectId+'/contractors/invite',{method:'POST',body:JSON.stringify({contractorEmail:input.value})});toast('Contractor invitation sent');go('projects')}catch(err){toast(err.message,'error')}}
@@ -55,6 +55,45 @@ async function buildView(){const projects=await api('/projects');return `<div cl
 async function createVoucher(e){e.preventDefault();try{let pid=projectId.value;if(!pid){const p=await api('/projects',{method:'POST',body:JSON.stringify({name:pn.value,location:pl.value,contractorName:cn.value,contractorPhone:cp.value,description:pd.value})});pid=p.id;if(ce.value)await api('/projects/'+pid+'/contractors/invite',{method:'POST',body:JSON.stringify({contractorEmail:ce.value})})}const v=await api('/vouchers',{method:'POST',body:JSON.stringify({projectId:pid,category:cat.value,amount:Number(amt.value)})});toast(`Voucher ${v.code} created`);go('projects')}catch(err){toast(err.message,'error')}}
 async function schoolView(){const s=await api('/schools');const p=await api('/schools/payments');return `<div class="page-title"><h1>School Payment</h1></div><div class="card"><form class="form" onsubmit="paySchool(event)"><div class="field"><label>School</label><select id="school">${s.schools.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div><div class="row"><div class="field"><label>Student name</label><input id="student" required></div><div class="field"><label>Student ID</label><input id="studentId"></div></div><div class="row"><div class="field"><label>Term</label><input id="term" placeholder="2026/27 Term 1"></div><div class="field"><label>Amount (GH₵)</label><input id="schoolAmt" type="number" min="1" required></div></div><button class="btn primary">Submit school payment</button></form></div><div class="card gap"><h3>Payment history</h3>${table(['Reference','School','Student','Amount','Status'],p.payments.map(x=>[x.id,x.school_name,x.student_name,money(x.amount),badge(x.status)]))}</div>`}
 async function paySchool(e){e.preventDefault();try{const r=await api('/schools/payments',{method:'POST',body:JSON.stringify({schoolId:school.value,studentName:student.value,studentId:studentId.value,term:term.value,amount:Number(schoolAmt.value)})});toast(`School payment ${r.id} submitted`);go('school')}catch(err){toast(err.message,'error')}}
+async function fiepaInvoiceView(){
+ const schools=await api('/schools');
+ return `<div class="page-title"><h1>Fiepa Pay · School invoice</h1></div>
+ <div class="card"><p>Find an invoice issued by an approved school. Confirm the student and amount before paying from your wallet.</p>
+ <form class="form" onsubmit="lookupFiepaInvoice(event)">
+ <div class="field"><label>School</label><select id="fiepaSchool" required>${schools.schools.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></div>
+ <div class="row"><div class="field"><label>Invoice reference</label><input id="fiepaRef" required maxlength="80" autocomplete="off"></div>
+ <div class="field"><label>Student ID</label><input id="fiepaStudent" required maxlength="100" autocomplete="off"></div></div>
+ <button class="btn primary">Find invoice</button></form></div>
+ <div id="fiepaInvoiceResult" class="card gap"><p class="muted">Invoice details will appear here after verification.</p></div>`;
+}
+async function lookupFiepaInvoice(e){
+ e.preventDefault();
+ const target=document.getElementById('fiepaInvoiceResult');
+ target.textContent='Checking invoice…';
+ try{
+  const studentIdentifier=document.getElementById('fiepaStudent').value.trim();
+  const data=await api('/fiepa/school-invoices/lookup',{method:'POST',body:JSON.stringify({schoolId:document.getElementById('fiepaSchool').value,reference:document.getElementById('fiepaRef').value.trim(),studentIdentifier})});
+  const x=data.invoice;
+  state.fiepaInvoice={id:x.id,studentIdentifier,amountMinor:Number(x.amount_minor)};
+  target.innerHTML=`<h3>Invoice found</h3><p><strong>${esc(x.school_name)}</strong></p>
+  <p>Student: ${esc(x.student_name)} · Reference: ${esc(x.invoice_reference)}</p>
+  <p>Term: ${esc(x.academic_term||'Not specified')} · Status: ${badge(x.status)}</p>
+  <h3>${money(Number(x.amount_minor)/100)}</h3>
+  <p class="muted">Paying allocates funds from your wallet. School settlement will be confirmed separately.</p>
+  <button class="btn primary" onclick="payFiepaInvoice()">Pay invoice from wallet</button>`;
+ }catch(err){state.fiepaInvoice=null;target.textContent=err.message;toast(err.message,'error')}
+}
+async function payFiepaInvoice(){
+ const x=state.fiepaInvoice;if(!x)return toast('Find an invoice first','error');
+ if(!confirm('Confirm payment of '+money(x.amountMinor/100)+' from your wallet?'))return;
+ state.fiepaInvoice=null;
+ try{
+  const result=await api('/fiepa/school-invoices/pay',{method:'POST',body:JSON.stringify({invoiceId:x.id,studentIdentifier:x.studentIdentifier,amountMinor:x.amountMinor})});
+  const target=document.getElementById('fiepaInvoiceResult');
+  if(target)target.innerHTML=`<h3>Wallet payment confirmed</h3><p>Payment reference: ${esc(result.id)}</p><p>School settlement: ${esc(result.settlementStatus)}</p><p class="muted">This is not proof the school has received funds.</p>`;
+  toast('Wallet payment confirmed; school settlement pending');
+ }catch(err){toast(err.message,'error')}
+}
 async function transactionsView(){const r=await api('/transactions');return '<div class="page-title"><h1>Transactions</h1></div><div class="card table-wrap">'+table(['Reference','Purpose','Merchant','Amount','Status','Settlement','Actions'],r.transactions.map(x=>{const actions=x.status==='COMPLETED'?'<button class="btn secondary" onclick="viewReceipt(&quot;'+x.id+'&quot;)">Receipt</button> <button class="btn secondary" onclick="openDispute(&quot;'+x.id+'&quot;)">Dispute</button>':'';return [x.id,x.category||'School',x.merchant_name||'School',money(x.amount),badge(x.status),badge(x.settlement_status),actions]}))+'</div>'}
 async function openDispute(id){const reason=prompt('Reason for dispute');if(!reason)return;const details=prompt('Additional details (optional)')||'';try{await api('/transactions/'+id+'/dispute',{method:'POST',body:JSON.stringify({reason:reason,details:details})});toast('Dispute opened');go('disputes')}catch(e){toast(e.message,'error')}}
 async function profileView(){const k=await api('/kyc/me');return `<div class="page-title"><h1>Profile & KYC</h1></div><div class="grid2"><div class="card"><h3>Account</h3><p><b>Name:</b> ${esc(user.firstName)} ${esc(user.lastName)}</p><p><b>Email:</b> ${esc(user.email)}</p><p><b>Phone:</b> ${esc(user.phone||'Not provided')}</p><p><b>KYC:</b> ${badge(user.kycStatus)}</p></div><div class="card"><h3>Government ID verification</h3>${k.kyc?`<p><b>Document:</b> ${esc(k.kyc.document_type)}</p><p><b>Number:</b> •••••${esc(k.kyc.documentNumberLast4||'****')}</p><p><b>Status:</b> ${badge(k.kyc.status)}</p>`:`<p class="muted">Submit your government ID to unlock funded payment activity.</p>`}<form class="form" onsubmit="submitKyc(event)"><div class="field"><label>Document type</label><select id="dtype"><option>Passport</option><option>National ID</option><option>Driver's Licence</option></select></div><div class="row"><div class="field"><label>Document number</label><input id="dnum" required></div><div class="field"><label>Country of issue</label><input id="dcountry" value="Ghana" required></div></div><div class="row"><div class="field"><label>Issue date</label><input id="dissue" type="date"></div><div class="field"><label>Expiry date</label><input id="dexpiry" type="date"></div></div><button class="btn primary">Submit for review</button></form></div></div>`}
