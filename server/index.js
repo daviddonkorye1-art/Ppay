@@ -239,6 +239,7 @@ async function main(req,res){
       invoice=(await client.query("SELECT si.* FROM school_invoices si JOIN schools s ON s.id=si.school_id WHERE si.id=$1 AND s.status='APPROVED' FOR UPDATE OF si",[b.invoiceId])).rows[0];
       if(!invoice){await client.query('ROLLBACK');return out(res,404,{error:'Approved school invoice not found'})}
       if(invoice.status!=='ISSUED'){await client.query('ROLLBACK');return out(res,409,{error:'Invoice is not payable'})}
+      if(!Number.isSafeInteger(Number(invoice.amount_minor))){await client.query('ROLLBACK');return out(res,409,{error:'Invalid invoice amount'})}
       if(invoice.student_identifier!==b.studentIdentifier.trim()){await client.query('ROLLBACK');return out(res,400,{error:'Student identifier does not match invoice'})}
       const amount=Number(invoice.amount_minor);
       if(!Number.isSafeInteger(amount)||amount<=0||invoice.currency!=='GHS'){await client.query('ROLLBACK');return out(res,409,{error:'Unsupported invoice amount or currency'})}
