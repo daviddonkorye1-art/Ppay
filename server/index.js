@@ -257,10 +257,30 @@ async function main(req,res){
       await client.query("UPDATE school_invoices SET status='PAID',paid_at=NOW() WHERE id=$1",[invoice.id]);
       await client.query("UPDATE school_invoice_payments SET status='CONFIRMED',confirmed_at=NOW() WHERE id=$1",[paymentId]);
       await client.query("UPDATE school_payments SET status='COMPLETED',completed_at=NOW() WHERE id=$1",[schoolPaymentId]);
+      await client.query('INSERT INTO school_settlements(id,invoice_payment_id,school_id,amount_minor,currency) VALUES($1,$2,$3,$4,$5)',[id('SSET'),paymentId,invoice.school_id,amount,'GHS']);
       await client.query('COMMIT');
     }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e}finally{client.release()}
     await audit(me.sub,'PAY','SCHOOL_INVOICE',invoice.id,{schoolPaymentId,paymentId,amountMinor:Number(invoice.amount_minor)});
     return out(res,201,{id:paymentId,schoolPaymentId,invoiceId:invoice.id,status:'CONFIRMED',settlementStatus:'NOT_SETTLED',amountMinor:Number(invoice.amount_minor),currency:'GHS'});
+  }
+  if((route==='api/fiepa/school-settlements'||route.startsWith('api/fiepa/school-settlements/'))&&process.env.FIEPA_SCHOOL_INVOICES_ENABLED!=='true')return out(res,404,{error:'Feature not enabled'});
+  if(req.method==='GET'&&route==='api/fiepa/school-settlements'){
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const rows=(await q('SELECT ss.id,ss.invoice_payment_id,ss.school_id,ss.amount_minor,ss.currency,ss.status,ss.external_reference,ss.verified_at,ss.created_at,si.invoice_reference,s.name AS school_name FROM school_settlements ss JOIN school_invoice_payments sip ON sip.id=ss.invoice_payment_id JOIN school_invoices si ON si.id=sip.invoice_id JOIN schools s ON s.id=ss.school_id ORDER BY ss.created_at DESC LIMIT 100')).rows;
+    return out(res,200,{settlements:rows});
+  }
+  if(req.method==='POST'&&route.startsWith('api/fiepa/school-settlements/')&&route.endsWith('/verify')){
+    if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
+    const settlementId=route.slice('api/fiepa/school-settlements/'.length,-'/verify'.length);
+    if(!/^SSET_[a-f0-9-]{36}$/.test(settlementId))return out(res,400,{error:'Invalid settlement ID'});
+    const b=await body(req);
+    if(typeof b.externalReference!=='string'||!/^[-A-Za-z0-9_./]{8,120}$/.test(b.externalReference.trim()))return out(res,400,{error:'Valid external settlement reference required'});
+    if(typeof b.evidenceNote!=='string'||b.evidenceNote.trim().length<20||b.evidenceNote.length>2000)return out(res,400,{error:'Provide at least 20 characters describing independently verified settlement evidence'});
+    // An admin records evidence from an external payment provider/bank; this route does not send money.
+    const result=await q("UPDATE school_settlements SET status='SETTLED',external_reference=$1,evidence_note=$2,verified_by=$3,verified_at=NOW() WHERE id=$4 AND status='PENDING' RETURNING id,status,external_reference,verified_at",[b.externalReference.trim(),b.evidenceNote.trim(),me.sub,settlementId]);
+    if(!result.rowCount)return out(res,409,{error:'Settlement not pending or not found'});
+    await audit(me.sub,'VERIFY','SCHOOL_SETTLEMENT',settlementId,{externalReference:b.externalReference.trim()});
+    return out(res,200,{settlement:result.rows[0]});
   }
   if(req.method==='GET'&&route==='api/fiepa/school-invoices'){
     if(!role(me,'ADMIN'))return out(res,403,{error:'Admin role required'});
